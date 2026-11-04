@@ -2,6 +2,7 @@
 
 #include "PcmMachine.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace ostrich {
@@ -105,7 +106,18 @@ constexpr float kTr505Out[16][2] = {
 // transistor's base the smaller: scaled by (R + 2.2k) / (47k + 2.2k) (derived).
 constexpr double kTr505Pulse = 0.05;
 constexpr double kTr505Series[16] = {47, 47, 47, 47, 47, 47, 33, 47, 100, 82, 100, 82, 47, 47, 47, 47};
-constexpr double kHpA = 1.0 / (1.0 + 2.0 * 3.14159265358979 * 0.34 / PcmMachine::kRate);
+// TR-505: the centre bus. Channels 3-7 (BD, congas, SD, cowbells, clap / rim) share one
+// summing amplifier (IC16b, documented), each in by its series resistor (busIn, relative to
+// 47k); the sum is limited at kTr505BusClip, then goes to both outputs (R102 = R103) by
+// kTr505BusOut. Measured (fit of the band shares against the recordings, hard limit
+// better than one-sided or soft): the limit at 0.606 of a 47k channel's full scale (with
+// its envelope) brings the bass drum from 4.7 to 0.6 dB rms, the snare from 3.7 to 1.1,
+// the high conga 2.4 to 0.6; the quieter cowbells, clap and rim do not reach it.
+// kTr505BusOut: set so that the bus sounds keep their measured levels against the other
+// sounds (kTr505Out, which the bus sounds no longer use): checked, all within +-0.5 dB.
+constexpr double kTr505BusClip = 1.0 / 1.65;
+constexpr double kTr505BusOut = 0.973;
+constexpr double kHpA =1.0 / (1.0 + 2.0 * 3.14159265358979 * 0.34 / PcmMachine::kRate);
 
 // TR-626: the closed hi-hat cuts the open one off. Not yet measured (ROADMAP.md); the
 // usual behaviour of Roland's drum machines. No envelope yet (to measure).
@@ -127,6 +139,8 @@ PcmMachine::PcmMachine(Model model) : model_(model), numSounds_(model == kTr505 
             voices_[s].outR = kTr505Out[s][1];
             voices_[s].hold = uint32_t(kTr505Hold * kRate);
             voices_[s].pulse = float(kTr505Pulse * (kTr505Series[s] + 2.2) / (47.0 + 2.2) * 128.0);
+            voices_[s].bus = kTr505Channel[s] >= 3;
+            voices_[s].busIn = float((47.0 + 2.2) / (kTr505Series[s] + 2.2));
         }
         voices_[s].step = kSampleRate / kRate;
     }
@@ -163,8 +177,19 @@ void PcmMachine::trigger(int sound, int velocity)
 
 void PcmMachine::render(int n, float* left, float* right)
 {
+    while (n > kBlock) {
+        renderBlock(kBlock, left, right);
+        left += kBlock;
+        right += kBlock;
+        n -= kBlock;
+    }
+    renderBlock(n, left, right);
+}
+
+void PcmMachine::renderBlock(int n, float* left, float* right)
+{
     for (int i = 0; i < n; ++i)
-        left[i] = right[i] = 0.0f;
+        left[i] = right[i] = bus_[size_t(i)] = 0.0f;
     if (!rom_)
         return;
     for (int s = 0; s < numSounds_; ++s) {
@@ -188,13 +213,23 @@ void PcmMachine::render(int n, float* left, float* right)
                 --v.holdLeft;
             else
                 v.env *= v.decay;
-            left[i] += x * v.outL;
-            right[i] += x * v.outR;
+            if (v.bus) {
+                bus_[size_t(i)] += x * v.busIn;
+            } else {
+                left[i] += x * v.outL;
+                right[i] += x * v.outR;
+            }
             v.pos += v.step;
         }
     }
     if (model_ != kTr505)
         return;
+    // The centre bus (IC16b): its sum limited, then to both outputs alike.
+    for (int i = 0; i < n; ++i) {
+        const float b = std::clamp(bus_[size_t(i)], -float(kTr505BusClip), float(kTr505BusClip));
+        left[i] += b * float(kTr505BusOut);
+        right[i] += b * float(kTr505BusOut);
+    }
     // The output's coupling capacitors (C52 / C50 10 uF into R111 / R110 47k: 0.34 Hz).
     for (int i = 0; i < n; ++i) {
         const float l = left[i], r = right[i];

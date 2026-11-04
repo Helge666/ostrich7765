@@ -154,7 +154,7 @@ private:
 		fill();
 
 		// The stripe along the top, in the colours of the machines.
-		const float sw = kW / kNumMachines;
+		const float sw = kW / float(kNumMachines);
 		for (uint32_t m = 0; m < kNumMachines; m ++)
 		{
 			beginPath();

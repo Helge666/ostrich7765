@@ -1,0 +1,255 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Build Ostrich 7765 for Linux and Windows, and -- for a v* tag only -- publish a release.
+# Adapted from Ostrich 220's workflow.
+#
+# One runner builds both platforms: Windows is cross-compiled with mingw-w64, as on the
+# build host (BUILDING.md).
+#
+#   push to main      build, smoke-test, keep the zips as workflow artifacts
+#   tag  preview-*    the same; publishes no release (the dry run)
+#   tag  v*           the same, then publishes a GitHub release with the zips
+#   manual run        the same as a push to main
+#
+# No ROMs anywhere: the smoke test loads the plugin without them and checks that it starts,
+# has its outputs, plays without crashing and saves its state.
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+      - 'preview-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CCACHE_DIR: /home/runner/.ccache
+  CCACHE_MAXSIZE: 500M
+
+jobs:
+  build:
+    name: Linux + Windows (cross-compiled)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      # Full history for `git describe`; the submodules are fetched shallow below.
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      # The version is plugin/ostrich/Version.hpp's.  A v* or preview-* tag must name the
+      # same, or the binaries would report another version than the release says.
+      - name: Work out the version
+        id: version
+        run: |
+          set -euo pipefail
+          hdr=plugin/ostrich/Version.hpp
+          num() { sed -n "s/^#define OSTRICH_VERSION_$1 \([0-9][0-9]*\)$/\1/p" "$hdr"; }
+          header="$(num MAJOR).$(num MINOR).$(num PATCH)"
+          ref="${GITHUB_REF#refs/tags/}"
+          case "$GITHUB_REF" in
+            refs/tags/v*)        version="${ref#v}" ;;
+            refs/tags/preview-*) version="${ref#preview-}" ;;
+            *)                   version="$header-$(git rev-list --count HEAD)-g$(git rev-parse --short HEAD)" ;;
+          esac
+          case "$GITHUB_REF" in
+            refs/tags/*)
+              if [ "$version" != "$header" ]; then
+                echo "::error title=Version::tag $ref, but $hdr says $header"
+                exit 1
+              fi ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Version::$version ($GITHUB_REF)"
+
+      # No Roland data may ever reach the repository; a last look at what is tracked.
+      - name: Check that no ROM image is tracked
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -iE '\.(bin|rom|ic[0-9]+|zip|7z|wav|syx|pdf)$'; then
+            echo "::error title=ROMs::files of a ROM or recording type are tracked"
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          APT="-o Acquire::Retries=5 -o Acquire::http::Timeout=30"
+          sudo apt-get $APT update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get $APT install -y --no-install-recommends \
+            build-essential git pkg-config ccache zip \
+            libjack-jackd2-dev libgl1-mesa-dev libx11-dev libxext-dev libxcursor-dev \
+            libcairo2-dev libdbus-1-dev g++-mingw-w64-x86-64
+
+      # Two mingw thread models, not link-compatible. win32, as on the build host: the
+      # binaries then need no mingw runtime DLL.
+      - name: Pin the mingw toolchain to the win32 thread model
+        run: |
+          set -euo pipefail
+          for t in gcc g++; do
+            sudo update-alternatives --set "x86_64-w64-mingw32-$t" "/usr/bin/x86_64-w64-mingw32-$t-win32"
+          done
+          x86_64-w64-mingw32-g++ -v 2>&1 | grep -i "thread model"
+
+      - name: Fetch the submodules (DPF, pugl)
+        run: |
+          set -euo pipefail
+          if ! git submodule update --init --recursive --depth 1; then
+            echo "::warning title=Submodules::shallow fetch failed, fetching in full"
+            git submodule update --init --recursive
+          fi
+          git submodule status --recursive
+
+      - name: Restore the compiler cache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.ccache
+          key: ccache-ubuntu24-${{ github.sha }}
+          restore-keys: |
+            ccache-ubuntu24-
+
+      # Through argv[0], so that the mingw compilers the `win` target names are caught too.
+      - name: Put ccache in front of every compiler
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/ccache-bin"
+          for c in gcc g++ x86_64-w64-mingw32-gcc x86_64-w64-mingw32-g++; do
+            ln -sf /usr/bin/ccache "$HOME/ccache-bin/$c"
+          done
+          echo "$HOME/ccache-bin" >> "$GITHUB_PATH"
+          ccache --zero-stats > /dev/null
+
+      - name: Build for Linux (VST3, CLAP, standalone)
+        run: |
+          set -euo pipefail
+          cd plugin/ostrich
+          make -j"$(nproc)"
+          ls -lR ../bin
+
+      - name: Smoke test without ROMs
+        run: |
+          set -euo pipefail
+          gcc -std=gnu11 -O2 -o ostrich_clap_render plugin/tools/ostrich_clap_render.c \
+              -Iplugin/dpf/distrho/src -ldl
+          export HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" OSTRICH_ROMS="$(mktemp -d)"
+          ./ostrich_clap_render plugin/bin/Ostrich7765.clap /tmp/out.wav 2>&1 | tee smoke.txt
+          grep -q "plugin: Ostrich 7765" smoke.txt
+          grep -q "outputs: 17 buses, 18 channels" smoke.txt
+          grep -q "state: saved" smoke.txt
+
+      - name: Cross-compile for Windows (VST3, CLAP, standalone)
+        run: |
+          set -euo pipefail
+          cd plugin/ostrich
+          make -j"$(nproc)" win
+          ls -lR bin-win
+
+      # Statically linked: nothing but system DLLs may be imported, or hosts refuse to load
+      # the plugin on a machine without mingw.
+      - name: Check the Windows binaries import system DLLs only
+        run: |
+          set -euo pipefail
+          cd plugin/ostrich/bin-win
+          for f in Ostrich7765.clap Ostrich7765.vst3/Contents/x86_64-win/Ostrich7765.vst3 Ostrich7765.exe; do
+            echo "--- $f"
+            x86_64-w64-mingw32-objdump -p "$f" | grep -i "DLL Name"
+            if x86_64-w64-mingw32-objdump -p "$f" | grep -iE "DLL Name:.*(libstdc\+\+|libgcc|libwinpthread)"; then
+              echo "::error title=Windows build::$f imports a mingw runtime DLL"
+              exit 1
+            fi
+          done
+
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache --show-stats
+
+      - name: Package the zips
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist stage
+          pack() {   # pack <zip> <section> <path...>
+            local zip="$1" section="$2"; shift 2
+            local dir="stage/$section"
+            rm -rf "$dir"; mkdir -p "$dir"
+            cp -r "$@" "$dir/"
+            printf 'Ostrich 7765\nversion  %s\ncommit   %s\n' "$VERSION" "$GITHUB_SHA" > "$dir/VERSION.txt"
+            .github/release-text.sh "$section" > "$dir/INSTALL.txt"
+            cp LICENSE THIRD-PARTY.md "$dir/"
+            .github/licenses.sh "$dir/licenses"
+            ( cd "$dir" && zip -q -r -y "../../dist/$zip" . )
+          }
+          pack Ostrich7765-Windows.zip windows \
+            plugin/ostrich/bin-win/Ostrich7765.vst3 plugin/ostrich/bin-win/Ostrich7765.clap \
+            plugin/ostrich/bin-win/Ostrich7765.exe
+          pack Ostrich7765-Linux.zip linux \
+            plugin/bin/Ostrich7765.vst3 plugin/bin/Ostrich7765.clap plugin/bin/Ostrich7765
+          for z in dist/*.zip; do echo "--- $z"; unzip -l "$z"; done
+
+      - name: Upload Ostrich7765-Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ostrich7765-Windows
+          path: dist/Ostrich7765-Windows.zip
+          if-no-files-found: error
+
+      - name: Upload Ostrich7765-Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ostrich7765-Linux
+          path: dist/Ostrich7765-Linux.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Download the zips
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Write the release notes
+        run: |
+          set -euo pipefail
+          .github/release-text.sh notes "${{ needs.build.outputs.version }}" > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "Ostrich 7765 $VERSION" --notes-file notes.md
+          else
+            gh release create "$TAG" --title "Ostrich 7765 $VERSION" --notes-file notes.md
+          fi
+          gh release upload "$TAG" dist/*.zip --clobber

@@ -17,9 +17,9 @@ You need your own ROM images. **This repository contains no Roland data and neve
 
 ## What it will do
 
-- **Four machines in one plugin**, each on its own tab and its own MIDI channel, all
-  playing at the same time. The TR-727 is prepared but needs its sound ROMs, which have not
-  been dumped yet.
+- **Four machines in one plugin**, each on its own tab and its own MIDI channel (TR-505 10,
+  TR-626 11, TR-707 12, TR-727 13; set on the SETTINGS page), all playing at the same time.
+  The TR-727 is prepared but needs its sound ROMs, which have not been dumped yet.
 - **A panel per machine** with a level per sound and the machine's own controls where it
   has them (such as the TR-626's pitch).
 - **16 mono outputs** besides the stereo mix: a sound assigned to one of them leaves the

@@ -50,15 +50,17 @@ gcc -std=gnu11 -O2 -o plugin/tools/ostrich_clap_render plugin/tools/ostrich_clap
 plugin/tools/ostrich_clap_render plugin/bin/Ostrich7765.clap /tmp/out.wav
 ```
 
-Without ROM images the outputs stay silent. With the TR-707's four images in a folder
-(roms/README.md; `OSTRICH_ROMS` points at any folder), the default notes play its bass
-drum 2, snare 1 and closed hi-hat on channel 10:
+Without ROM images the outputs stay silent. With images in a folder (roms/README.md;
+`OSTRICH_ROMS` points at any folder) each machine plays on its own channel: TR-505 10,
+TR-626 11, TR-707 12, TR-727 13 (changed on the SETTINGS page). For the TR-707's bass
+drum 2, snare 1 and closed hi-hat:
 
 ```sh
-OSTRICH_ROMS=~/my-roms plugin/tools/ostrich_clap_render plugin/bin/Ostrich7765.clap /tmp/out.wav
+OSTRICH_ROMS=~/my-roms plugin/tools/ostrich_clap_render plugin/bin/Ostrich7765.clap /tmp/out.wav \
+    36@0.5,38@1.0,42@1.5 12
 ```
 
-`plugin/tools/ostrich_engine_render.cpp` plays the TR-707 engine without the plugin (every
+`plugin/tools/ostrich_engine_render.cpp` plays a machine's engine without the plugin (every
 sound at three velocities); `tools/check_tr707_render.py` checks such a render against the
 ROMs. Both are described at their top.
 

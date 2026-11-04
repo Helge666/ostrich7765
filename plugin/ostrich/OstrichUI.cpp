@@ -9,6 +9,7 @@
 #include "OstrichShared.hpp"
 #include "Version.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -57,11 +58,19 @@ const char *const kMachineTitles[kNumMachines] = {
 	"TR-727  RHYTHM COMPOSER",
 };
 const char *const kMachineNotes[kNumMachines] = {
-	"The sounds follow once the ROM analysis is done (ROADMAP.md, phases 1 and 2).",
-	"The sounds follow once the ROM analysis is done (ROADMAP.md, phases 1 and 2).",
-	"The sounds follow once the ROM analysis is done (ROADMAP.md, phases 1 and 2).",
+	"Plays from its ROM image. The page's sounds and controls follow (ROADMAP.md, phase 4).",
+	"Plays from its ROM image. The page's sounds and controls follow (ROADMAP.md, phase 4).",
+	"Plays from its ROM images. The page's sounds and controls follow (ROADMAP.md, phase 4).",
 	"Prepared. The TR-727's sound ROMs have not been dumped yet.",
 };
+
+// The settings page: a row per machine with its MIDI channel, - and + either side.
+const float kChanX = kBody.x + 40, kChanY = kBody.y + 92;
+constexpr float kChanRowH = 44;
+constexpr float kChanBtn = 28, kChanBoxW = 56;
+inline Rect chanMinus(uint32_t m) { return { kChanX + 150, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
+inline Rect chanBox(uint32_t m) { return { kChanX + 150 + kChanBtn + 6, kChanY + m * kChanRowH, kChanBoxW, kChanBtn }; }
+inline Rect chanPlus(uint32_t m) { return { kChanX + 150 + kChanBtn + 12 + kChanBoxW, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
 
 const Color kBack(28, 28, 30), kPanel(36, 36, 40), kEdge(58, 58, 64);
 const Color kInk(235, 235, 235), kInkDim(150, 150, 156), kOrange(232, 128, 40);
@@ -78,11 +87,34 @@ public:
 		: UI(DISTRHO_UI_DEFAULT_WIDTH, DISTRHO_UI_DEFAULT_HEIGHT, true)
 	{
 		loadSharedResources();
+		for (uint32_t m = 0; m < kNumMachines; m ++)
+			m_channel[m] = kDefaultChannel[m];
 	}
 
 protected:
-	void parameterChanged(uint32_t, float) override
+	void parameterChanged(uint32_t index, float value) override
 	{
+		if (index >= kParamChannel && index < kParamChannel + kMachineCount)
+		{
+			m_channel[index - kParamChannel] = int(std::lround(value));
+			repaint();
+		}
+	}
+
+	bool onScroll(const ScrollEvent &ev) override
+	{
+		if (m_tab != kTabSettings)
+			return false;
+		const float s = mouseScale();
+		const float x = float(ev.pos.getX()) / s, y = float(ev.pos.getY()) / s;
+		for (uint32_t m = 0; m < kNumMachines; m ++)
+			if (chanBox(m).contains(x, y) || chanMinus(m).contains(x, y) || chanPlus(m).contains(x, y))
+			{
+				if (ev.delta.getY() != 0)
+					changeChannel(m, ev.delta.getY() > 0 ? 1 : -1);
+				return true;
+			}
+		return false;
 	}
 
 	void stateChanged(const char *key, const char *value) override
@@ -118,6 +150,14 @@ protected:
 					repaint();
 				}
 				return true;
+			}
+		if (m_tab == kTabSettings)
+			for (uint32_t m = 0; m < kNumMachines; m ++)
+			{
+				if (chanMinus(m).contains(x, y))
+					return changeChannel(m, -1), true;
+				if (chanPlus(m).contains(x, y))
+					return changeChannel(m, 1), true;
 			}
 		return false;
 	}
@@ -234,14 +274,88 @@ private:
 			text(cx, cy + 20, kMachineNotes[m_tab], nullptr);
 			return;
 		}
-		fontSize(22);
+		drawChannels();
+
+		// What is still to come, to the right.
+		const float rx = kBody.x + kBody.w * 0.55f;
+		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
+		fontSize(15);
 		fillColor(kInk);
-		text(cx, cy - 40, "SETTINGS", nullptr);
+		text(rx, kBody.y + 50, "TO COME", nullptr);
 		fontSize(13);
 		fillColor(kInkDim);
-		text(cx, cy - 10, "To come: a MIDI channel per machine, the assignment of the sounds to", nullptr);
-		text(cx, cy + 10, "OUT 1-16, vintage timing (the original CPU's MIDI grid and jitter),", nullptr);
-		text(cx, cy + 30, "and the ROM images found for each machine.", nullptr);
+		text(rx, kBody.y + 110, "The assignment of the sounds to OUT 1-16.", nullptr);
+		text(rx, kBody.y + 132, "Vintage timing: the original CPU's MIDI grid and jitter.", nullptr);
+		text(rx, kBody.y + 154, "The ROM images found for each machine.", nullptr);
+	}
+
+	void drawChannels()
+	{
+		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
+		fontSize(15);
+		fillColor(kInk);
+		text(kChanX, kBody.y + 50, "MIDI CHANNELS", nullptr);
+		fontSize(12);
+		fillColor(kInkDim);
+		text(kChanX, kBody.y + 70, "Each machine listens on its own channel. Click - / + or use the mouse wheel.", nullptr);
+
+		for (uint32_t m = 0; m < kNumMachines; m ++)
+		{
+			const Rect minus = chanMinus(m), box = chanBox(m), plus = chanPlus(m);
+			textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+			fontSize(15);
+			fillColor(kTabColour[m]);
+			text(kChanX, box.y + box.h / 2, kMachineNames[m], nullptr);
+
+			for (const Rect &b : { minus, plus })
+			{
+				beginPath();
+				roundedRect(b.x, b.y, b.w, b.h, 3);
+				fillColor(Color(48, 48, 54));
+				fill();
+				strokeColor(kEdge);
+				strokeWidth(1);
+				stroke();
+			}
+			beginPath();
+			roundedRect(box.x, box.y, box.w, box.h, 3);
+			fillColor(kBack);
+			fill();
+			strokeColor(kEdge);
+			strokeWidth(1);
+			stroke();
+
+			textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
+			fontSize(17);
+			fillColor(kInk);
+			text(minus.x + minus.w / 2, minus.y + minus.h / 2, "\xe2\x88\x92", nullptr);
+			text(plus.x + plus.w / 2, plus.y + plus.h / 2, "+", nullptr);
+			char value[8];
+			std::snprintf(value, sizeof(value), "%d", m_channel[m]);
+			fontSize(15);
+			text(box.x + box.w / 2, box.y + box.h / 2 + 1, value, nullptr);
+
+			if (m == kTR727)
+			{
+				textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+				fontSize(12);
+				fillColor(kInkDim);
+				text(plus.x + plus.w + 16, box.y + box.h / 2, "no ROMs yet", nullptr);
+			}
+		}
+	}
+
+	void changeChannel(uint32_t m, int delta)
+	{
+		const int v = std::max(1, std::min(16, m_channel[m] + delta));
+		if (v == m_channel[m])
+			return;
+		m_channel[m] = v;
+		const uint32_t index = kParamChannel + m;
+		editParameter(index, true);
+		setParameterValue(index, float(v));
+		editParameter(index, false);
+		repaint();
 	}
 
 	void drawFooter()
@@ -250,7 +364,7 @@ private:
 		fontSize(12);
 		textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
 		fillColor(kInkDim);
-		text(kMargin, y, "Plays from MIDI, one channel per machine. Nothing plays yet: this is the scaffold.", nullptr);
+		text(kMargin, y, "Plays from MIDI, one channel per machine (SETTINGS). Needs your own ROM images.", nullptr);
 		textAlign(ALIGN_RIGHT | ALIGN_MIDDLE);
 		text(kW - kMargin, y, "No Roland data included. Not affiliated with Roland.", nullptr);
 	}
@@ -329,6 +443,7 @@ private:
 	}
 
 	uint32_t m_tab = kTR505;
+	int m_channel[kNumMachines];
 
 	const std::chrono::steady_clock::time_point m_created = std::chrono::steady_clock::now();
 	std::string m_sizeSaved;                    // "<w> <h>" unscaled, as in the plugin state

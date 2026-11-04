@@ -35,7 +35,7 @@ public:
 		: Plugin(kParamCount, 0, kStateCount)
 	{
 		for (uint32_t m = 0; m < kNumMachines; m ++)
-			m_channel[m] = 10;
+			m_channel[m] = kDefaultChannel[m];
 		loadRoms();
 		sampleRateChanged(getSampleRate());
 	}
@@ -78,7 +78,7 @@ protected:
 			p.hints = kParameterIsInteger;
 			p.name = String(kMachineNames[m]) + " MIDI channel";
 			p.symbol = String(kMachineSymbols[m]) + "_channel";
-			p.ranges.def = 10.0f;
+			p.ranges.def = float(kDefaultChannel[m]);
 			p.ranges.min = 1.0f;
 			p.ranges.max = 16.0f;
 		}

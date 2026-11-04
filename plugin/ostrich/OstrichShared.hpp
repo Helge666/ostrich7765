@@ -34,9 +34,13 @@ constexpr uint32_t kNumTabs = kNumMachines + 1;
 enum Param : uint32_t
 {
 	kParamVolume = 0,           ///< master volume, dB
-	kParamChannel,              ///< + machine: its MIDI channel, 1..16 (all start on 10)
+	kParamChannel,              ///< + machine: its MIDI channel, 1..16 (kDefaultChannel)
 	kParamCount = kParamChannel + kMachineCount
 };
+
+// Each machine starts on a channel of its own, so that all can play at once (the units
+// themselves all start on 10).
+constexpr int kDefaultChannel[kNumMachines] = { 10, 11, 12, 13 };
 
 // ---- states ------------------------------------------------------------------------------
 

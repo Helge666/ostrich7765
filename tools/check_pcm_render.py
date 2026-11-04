@@ -25,6 +25,8 @@ TR505 = BANK + [(0xE000, 0x1000), (0xF000, 0x1000), (0x10000, 0x8000), (0x18000,
 TR626_BANK = BANK + [(0xE000, 0x2000), (0x10000, 0x8000), (0x18000, 0x4000),
                      (0x1C000, 0x2000), (0x1E000, 0x2000)]
 TR626 = [(b + o, n) for b in (0, 0x20000) for o, n in TR626_BANK]
+# The unit reads sample n of a sound at n ^ FLIP (PcmMachine.cpp, analysis/TR-505.md).
+FLIP = {"505": {12: 7, 13: 3, 14: 1, 15: 1}, "626": {}}
 
 
 def main():
@@ -42,7 +44,7 @@ def main():
     worst = 1.0
     for t, note, s in hits:
         off, ln = sounds[int(s)]
-        snd = rom[off:off + ln]
+        snd = rom[off + (np.arange(ln) ^ FLIP[sys.argv[1]].get(int(s), 0))]
         n = int(0.1 * sr)
         a = int(float(t) * sr)
         seg = x[a:a + n + 200]

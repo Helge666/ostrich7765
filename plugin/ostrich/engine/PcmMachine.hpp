@@ -50,6 +50,7 @@ public:
 private:
     struct Voice {
         uint32_t offset = 0, length = 0;
+        uint32_t flip = 0;            // sample n is read at n ^ flip (see kTr505Flip)
         double pos = 0.0, step = 0.25;
         float gain = 0.0f;
         bool playing = false;

@@ -24,6 +24,13 @@ constexpr Region kTr626BankSounds[15] = {
     {0x10000, 0x8000}, {0x18000, 0x4000}, {0x1C000, 0x2000}, {0x1E000, 0x2000},
 };
 
+// The order in which the unit reads the samples of a sound, against the sound order
+// (SoundOrder.cpp, the known decoded dump): sample n at n ^ flip. Measured: with these the
+// recordings follow the ROM sample for sample up to 20 kHz (coherence 0.97-0.99; without,
+// 0.0-0.3 above 2 kHz). In pin order: the counter's A0 inverted (hi-hats, as for slots
+// 0-3), and for the cymbals also the clocks D and 1/2 D on A13 and A14 (analysis/TR-505.md).
+constexpr uint32_t kTr505Flip[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 3, 1, 1};
+
 // Accent: level per step (velocity / 2) relative to velocity 127, measured on the bass
 // drum (RMS of its first 60 ms); the other sounds follow within about 1 dB.
 constexpr float kTr505Accent[64] = {
@@ -56,6 +63,7 @@ PcmMachine::PcmMachine(Model model) : model_(model), numSounds_(model == kTr505 
         const Region r = model == kTr505 ? kTr505Sounds[s] : kTr626BankSounds[s % 15];
         voices_[s].offset = r.offset + (model == kTr626 && s >= 15 ? 0x20000 : 0);
         voices_[s].length = r.length;
+        voices_[s].flip = model == kTr505 ? kTr505Flip[s] : 0;
         voices_[s].step = kSampleRate / kRate;
     }
 }
@@ -100,7 +108,7 @@ void PcmMachine::render(int n, float* left, float* right)
                 v.playing = false;
                 break;
             }
-            const float x = (float(data[k]) - 128.0f) * g;
+            const float x = (float(data[k ^ v.flip]) - 128.0f) * g;
             left[i] += x;
             right[i] += x;
             v.pos += v.step;

@@ -117,11 +117,84 @@ constexpr double kTr505Series[16] = {47, 47, 47, 47, 47, 47, 33, 47, 100, 82, 10
 // sounds (kTr505Out, which the bus sounds no longer use): checked, all within +-0.5 dB.
 constexpr double kTr505BusClip = 1.0 / 1.65;
 constexpr double kTr505BusOut = 0.973;
-constexpr double kHpA =1.0 / (1.0 + 2.0 * 3.14159265358979 * 0.34 / PcmMachine::kRate);
+constexpr double kHpA = 1.0 / (1.0 + 2.0 * 3.14159265358979 * 0.34 / PcmMachine::kRate);
 
-// TR-626: the closed hi-hat cuts the open one off. Not yet measured (ROADMAP.md); the
-// usual behaviour of Roland's drum machines. No envelope yet (to measure).
-int tr626Cuts(int sound) { return sound == 25 ? 10 : -1; }
+// TR-626: the envelope, as the TR-505's (same model). Measured (tools/measure/env_fit.py,
+// the recordings at velocity 127): one hold and one v0 for all sounds (the TR-505's
+// values fit within 0.03 dB rms as well), tau per sound, within 0.2-1.1 dB rms. tau falls
+// into the TR-505's three groups (about 105, 260 and 590 ms) and the open hi-hat's 850 ms.
+// tau mostly goes with the channel (kTr626Channel), as on the TR-505. Not for the rim shot
+// (its channel's snare 3: 100 ms): it ends too soon for the fit to be sure (1.06 s over
+// 95 ms), but the render's band shares (check_render.py) confirm it: 3.8 dB rms at 100 ms,
+// 2.6 at 260, 1.5 at 600, 1.05 at 1000 ms. As the hi-hats' channel, with two envelopes.
+constexpr double kTr626Hold = 0.030;
+constexpr float kTr626V0 = 0.12f;
+constexpr float kTr626Tau[30] = {
+    0.318f, 0.260f, 0.260f, 0.260f, 0.098f,   // open high conga, low / high / mid tom 1, clap
+    0.106f, 0.110f, 0.103f, 1.060f, 0.138f,   // cowbell, claves, tambourine, rim, bass drum 1
+    0.846f, 0.582f, 0.599f, 0.275f, 0.245f,   // open hi-hat, crash, ride, snare 1, snare 2
+    0.275f, 0.267f, 0.267f, 0.267f, 0.110f,   // low conga, low / high / mid tom 2, mute conga
+    0.106f, 0.110f, 0.106f, 0.100f, 0.110f,   // low agogo, shaker, high agogo, snare 3, BD 2
+    0.252f, 0.582f, 0.599f, 0.245f, 0.245f,   // closed hi-hat, china, cup, low / high timbale
+};
+
+// TR-626: each sound's gain at the left and right outputs (relative to the loudest),
+// measured (tools/measure/levels.py, as the TR-505's). The right output read 0.28 dB high
+// on all centred sounds (0.21-0.43); taken out, as on the TR-505.
+constexpr float kTr626Out[30][2] = {
+    {0.309f, 0.309f},   // open high conga
+    {0.472f, 0.229f},   // low tom 1
+    {0.233f, 0.483f},   // high tom 1
+    {0.461f, 0.462f},   // mid tom 1
+    {0.302f, 0.301f},   // hand clap
+    {0.223f, 0.222f},   // cowbell
+    {0.321f, 0.319f},   // claves
+    {0.195f, 0.193f},   // tambourine
+    {0.597f, 0.598f},   // rim shot
+    {1.000f, 1.000f},   // bass drum 1
+    {0.078f, 0.199f},   // open hi-hat
+    {0.112f, 0.164f},   // crash
+    {0.250f, 0.143f},   // ride
+    {0.401f, 0.402f},   // snare drum 1
+    {0.407f, 0.407f},   // snare drum 2
+    {0.307f, 0.309f},   // low conga
+    {0.477f, 0.231f},   // low tom 2
+    {0.229f, 0.476f},   // high tom 2
+    {0.468f, 0.469f},   // mid tom 2
+    {0.324f, 0.323f},   // mute high conga
+    {0.208f, 0.207f},   // low agogo
+    {0.243f, 0.241f},   // shaker
+    {0.207f, 0.209f},   // high agogo
+    {0.578f, 0.578f},   // snare drum 3
+    {0.987f, 0.987f},   // bass drum 2
+    {0.076f, 0.193f},   // closed hi-hat
+    {0.107f, 0.157f},   // china cymbal
+    {0.255f, 0.146f},   // cup
+    {0.366f, 0.372f},   // low timbale
+    {0.361f, 0.367f},   // high timbale
+};
+
+// TR-626: the envelope pulse, as the TR-505's. Measured (tools/measure/vca_fit.py, one
+// value for all sounds; no series resistors known, all taken as 47k): 0.06 brings the band
+// shares from 2.4 to 1.0 dB rms on average (the TR-505: 0.05).
+constexpr double kTr626Pulse = 0.06;
+
+// TR-626: the channel each sound plays on; a sound cuts off any other sound of its
+// channel. Measured (tools/measure/pairscan.py, cut_eval.py: all 435 pairs of the 30
+// notes, the second 30 ms after the first): 55 pairs cut off (what is left of the first
+// sound under 0.05), all others play on (0.9-1.1). They form eight groups, every pair
+// within a group cutting, as the MB63H114's eight channels. The numbers are ours, chosen
+// as the TR-505's where the sounds match (no service notes for the TR-626): 0 hi-hats,
+// 1 cymbals, 2 toms and congas, 3 bass drums, 4 clap, mute conga, shaker, claves,
+// 5 snares 1-2 and timbales, 6 tambourine, cowbell, agogos, 7 rim shot and snare 3.
+constexpr int kTr626Channel[30] = {
+    2, 2, 2, 2, 4,   // open high conga, low / high / mid tom 1, clap
+    6, 4, 6, 7, 3,   // cowbell, claves, tambourine, rim, bass drum 1
+    0, 1, 1, 5, 5,   // open hi-hat, crash, ride, snare 1, snare 2
+    2, 2, 2, 2, 4,   // low conga, low / high / mid tom 2, mute conga
+    6, 4, 6, 7, 3,   // low agogo, shaker, high agogo, snare 3, bass drum 2
+    0, 1, 1, 5, 5,   // closed hi-hat, china, cup, low / high timbale
+};
 
 } // namespace
 
@@ -141,6 +214,13 @@ PcmMachine::PcmMachine(Model model) : model_(model), numSounds_(model == kTr505 
             voices_[s].pulse = float(kTr505Pulse * (kTr505Series[s] + 2.2) / (47.0 + 2.2) * 128.0);
             voices_[s].bus = kTr505Channel[s] >= 3;
             voices_[s].busIn = float((47.0 + 2.2) / (kTr505Series[s] + 2.2));
+        } else {
+            voices_[s].decay = std::exp(-1.0 / (double(kTr626Tau[s]) * kRate));
+            voices_[s].v0 = kTr626V0;
+            voices_[s].outL = kTr626Out[s][0];
+            voices_[s].outR = kTr626Out[s][1];
+            voices_[s].hold = uint32_t(kTr626Hold * kRate);
+            voices_[s].pulse = float(kTr626Pulse * 128.0);
         }
         voices_[s].step = kSampleRate / kRate;
     }
@@ -166,13 +246,10 @@ void PcmMachine::trigger(int sound, int velocity)
     v.env = 1.0;
     v.holdLeft = v.hold;
     v.playing = true;
-    if (model_ == kTr505) {
-        for (int s = 0; s < numSounds_; ++s)
-            if (s != sound && kTr505Channel[s] == kTr505Channel[sound])
-                voices_[s].playing = false;
-    } else if (const int cut = tr626Cuts(sound); cut >= 0) {
-        voices_[cut].playing = false;
-    }
+    const int* channel = model_ == kTr505 ? kTr505Channel : kTr626Channel;
+    for (int s = 0; s < numSounds_; ++s)
+        if (s != sound && channel[s] == channel[sound])
+            voices_[s].playing = false;
 }
 
 void PcmMachine::render(int n, float* left, float* right)
@@ -222,15 +299,16 @@ void PcmMachine::renderBlock(int n, float* left, float* right)
             v.pos += v.step;
         }
     }
-    if (model_ != kTr505)
-        return;
-    // The centre bus (IC16b): its sum limited, then to both outputs alike.
-    for (int i = 0; i < n; ++i) {
-        const float b = std::clamp(bus_[size_t(i)], -float(kTr505BusClip), float(kTr505BusClip));
-        left[i] += b * float(kTr505BusOut);
-        right[i] += b * float(kTr505BusOut);
+    // The TR-505's centre bus (IC16b): its sum limited, then to both outputs alike.
+    if (model_ == kTr505) {
+        for (int i = 0; i < n; ++i) {
+            const float b = std::clamp(bus_[size_t(i)], -float(kTr505BusClip), float(kTr505BusClip));
+            left[i] += b * float(kTr505BusOut);
+            right[i] += b * float(kTr505BusOut);
+        }
     }
-    // The output's coupling capacitors (C52 / C50 10 uF into R111 / R110 47k: 0.34 Hz).
+    // The output's coupling capacitors (TR-505: C52 / C50 10 uF into R111 / R110 47k:
+    // 0.34 Hz, documented; the TR-626 taken as the same, derived).
     for (int i = 0; i < n; ++i) {
         const float l = left[i], r = right[i];
         hpYL_ = float(kHpA) * (hpYL_ + l - hpXL_);

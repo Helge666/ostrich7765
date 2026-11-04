@@ -3,7 +3,7 @@
 """Does a transistor's exponential characteristic make the energy the recordings have over
 the ROM data (bass drum, snare: 250-500 Hz)?
 
-    vca_fit.py 505 SOUND_ORDER.bin NOTES_DIR
+    vca_fit.py 505|626 SOUND_ORDER.bin NOTES_DIR
 
 Model per sound: y = env(t) * (dc + (exp(a * x) - 1) / a), x the ROM sound as the DAC holds it
 (-1..1, response.held, in the unit's order), env the engine's envelope (PcmMachine.cpp).
@@ -23,11 +23,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from response import NOTES, REGIONS, SR, bands, held, onset, read, sound  # noqa: E402
 
 # PcmMachine.cpp: hold, v0, tau per sound.
-HOLD, V0 = 0.035, 0.18
-TAU = [0.258, 0.264, 0.264, 0.264, 0.112, 0.107, 0.135, 0.100,
-       0.123, 0.107, 0.118, 0.107, 0.580, 0.608, 0.636, 0.210]
-# Series resistor of each sound's channel (service notes), kOhm.
-SERIES = [47, 47, 47, 47, 47, 47, 33, 47, 100, 82, 100, 82, 47, 47, 47, 47]
+ENV = {
+    "505": (0.035, 0.18, [0.258, 0.264, 0.264, 0.264, 0.112, 0.107, 0.135, 0.100,
+                          0.123, 0.107, 0.118, 0.107, 0.580, 0.608, 0.636, 0.210]),
+    "626": (0.030, 0.12, [0.318, 0.260, 0.260, 0.260, 0.098, 0.106, 0.110, 0.103,
+                          1.060, 0.138, 0.846, 0.582, 0.599, 0.275, 0.245, 0.275,
+                          0.267, 0.267, 0.267, 0.110, 0.106, 0.110, 0.106, 0.100,
+                          0.110, 0.252, 0.582, 0.599, 0.245, 0.245]),
+}
+# Series resistor of each sound's channel (service notes), kOhm; the TR-626: not known,
+# all taken as 47k.
+SERIES = {"505": [47, 47, 47, 47, 47, 47, 33, 47, 100, 82, 100, 82, 47, 47, 47, 47],
+          "626": [47] * 30}
 
 
 
@@ -40,16 +47,20 @@ def shares(sig, nfft, fb):
 
 
 def main():
+    mach = sys.argv[1]
+    HOLD, V0, TAU = ENV[mach]
+    SER = SERIES[mach]
+    rate = 24955.0 if mach == "505" else 25125.0
     rom = np.frombuffer(open(sys.argv[2], "rb").read(), dtype=np.uint8).astype(np.float64) - 128.0
     fb = bands()
     fb = fb[(fb >= 40) & (fb <= 5100)]
     cases = []
-    for note, s in sorted(NOTES["505"].items()):
+    for note, s in sorted(NOTES[mach].items()):
         y = read(os.path.join(sys.argv[3], f"note{note:03d}.wav"))
         on = onset(y)
-        _, ln = REGIONS["505"][s]
-        n = min(int(ln / 24955 * SR) + 480, len(y) - on - int(0.2 * SR))
-        x = held(sound(rom, "505", s), 24955.0, n) / 128.0
+        _, ln = REGIONS[mach][s]
+        n = min(int(ln / rate * SR) + 480, len(y) - on - int(0.2 * SR))
+        x = held(sound(rom, mach, s), rate, n) / 128.0
         t = np.arange(n) / SR
         e = np.clip((np.exp(-np.maximum(t - HOLD, 0) / TAU[s]) - V0) / (1 - V0), 0, None)
         ys = y[max(0, on - 48):max(0, on - 48) + n].sum(axis=1)
@@ -83,23 +94,27 @@ def main():
         i0 = list(ag).index(0.0)
         j0 = int(np.argmin(tab[i0]))
         i, j = np.unravel_index(np.argmin(tab), tab.shape)
-        print(f"  note {c[0]:3d} s{c[1]:<2d} ({SERIES[c[1]]:3d}k): {tab[i0, list(cg).index(0.0)]:5.2f};"
+        print(f"  note {c[0]:3d} s{c[1]:<2d} ({SER[c[1]]:3d}k): {tab[i0, list(cg).index(0.0)]:5.2f};"
               f"  dc {cg[j0]:+.2f}: {tab[i0, j0]:5.2f};  a {ag[i]:+.1f} dc {cg[j]:+.2f}: {tab[i, j]:5.2f}")
+    print("one envelope term for all (a = 0; dc at 47k, scaled by (R + 2.2k) / (47k + 2.2k)):")
+    for k in (0.0, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.10, 0.12):
+        tot = [err(c, 0.0, k * (SER[c[1]] + 2.2) / 49.2)[0] for c in cases]
+        print(f"  dc {k:.2f}: mean {np.mean(tot):.2f} dB, largest {np.max(tot):.2f} dB")
     grid = np.concatenate([-np.linspace(0, 6, 61)[::-1], np.linspace(0, 6, 61)[1:]])
     d47 = 2.2 / (47 + 2.2)
     print("one drive A for all (a = A * d / d47):")
     best = None
     for A in grid:
-        tot = [err(c, A * (2.2 / (SERIES[c[1]] + 2.2)) / d47)[0] for c in cases]
+        tot = [err(c, A * (2.2 / (SER[c[1]] + 2.2)) / d47)[0] for c in cases]
         if best is None or np.mean(tot) < best[0]:
             best = (np.mean(tot), A, tot)
     print(f"  A = {best[1]:+.1f}: mean {best[0]:.2f} dB (a = 0: "
           f"{np.mean([err(c, 0.0)[0] for c in cases]):.2f} dB)")
     for c, v in zip(cases, best[2]):
         print(f"    note {c[0]:3d} s{c[1]:<2d}: {err(c, 0.0)[0]:5.2f} -> {v:5.2f} dB")
-    for note in (35, 38):
+    for note in (35, 38) if mach == "505" else ():
         c = [c for c in cases if c[0] == note][0]
-        a = best[1] * (2.2 / (SERIES[c[1]] + 2.2)) / d47
+        a = best[1] * (2.2 / (SER[c[1]] + 2.2)) / d47
         _, d0 = err(c, 0.0)
         _, d1 = err(c, a)
         fbk = fb[c[5]]

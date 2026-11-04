@@ -141,7 +141,9 @@ def main():
             continue
         yy = read(path)
         y = yy.sum(axis=1)
-        on = onset(yy)
+        # Room before the onset for the lag search (a recording may start right at it).
+        y = np.concatenate([np.zeros(400), y])
+        on = onset(yy) + 400
         off, ln = REGIONS[a.machine][s]
         snd = sound(rom, a.machine, s)
         n = min(int(ln / rate0 * SR), int(0.3 * SR), len(y) - on - 200)

@@ -2,7 +2,8 @@
 //
 // The TR-505 and TR-626: 8-bit sounds from the sound ROM at 25 kHz, each held until the
 // next (as the DAC holds it), scaled by the accent measured on the owner's units
-// (analysis/TR-505.md, TR-626.md). The analogue stages after the DAC follow in phase 3.
+// (analysis/TR-505.md, TR-626.md), with each unit's envelopes, output levels and pan, and
+// what its analogue stages add (envelope pulse; the TR-505's centre bus limit).
 //
 // Runs at 100 kHz, as the TR-707 engine, so that both share the resampler and the analogue
 // models to come.
@@ -41,8 +42,7 @@ public:
     // Pitch of a sound as a factor of its rate (1 = the ROM's 25 kHz).
     void setPitch(int sound, double factor) { voices_[sound].step = factor * kSampleRate / kRate; }
 
-    // Render n internal samples into the stereo mix (TR-626: mono for now, both sides
-    // the same).
+    // Render n internal samples into the stereo mix.
     void render(int n, float* left, float* right);
 
     // The unit's own note map (measured, and the same in its manual): a sound, or -1.
@@ -52,11 +52,11 @@ private:
     struct Voice {
         uint32_t offset = 0, length = 0;
         uint32_t flip = 0;            // sample n is read at n ^ flip (see kTr505Flip)
-        double env = 1.0, decay = 1.0;   // envelope (see kTr505Tau): exp(-t / tau) per sample
+        double env = 1.0, decay = 1.0;   // envelope (see kTr505Tau, kTr626Tau): exp(-t / tau) per sample
         float v0 = 0.0f;
         uint32_t hold = 0, holdLeft = 0;  // internal samples before the decay starts
-        float outL = 1.0f, outR = 1.0f;   // gain at the two outputs (kTr505Out)
-        float pulse = 0.0f;               // envelope pulse in sample units (kTr505Pulse)
+        float outL = 1.0f, outR = 1.0f;   // gain at the two outputs (kTr505Out, kTr626Out)
+        float pulse = 0.0f;               // envelope pulse in sample units (kTr505Pulse, kTr626Pulse)
         bool bus = false;                 // on the TR-505's centre bus (kTr505BusClip)
         float busIn = 1.0f;
         double pos = 0.0, step = 0.25;

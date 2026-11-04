@@ -27,6 +27,9 @@ Decisions so far:
       outputs (off until the host switches them on); the panel with its tabs; the version.
 - [x] CI: Linux and Windows on GitHub, smoke test, zips; `v*` publishes a release.
 - [ ] GitHub repository with topics; first push together with the owner.
+- [ ] DPF fork: the CLAP descriptor's version string is empty (DPF's "TODO version
+      string"), and CLAP buses of a group of our own have no port type (mono outputs).
+      Commits in Helge666/DPF, then a new `logan-N` tag.
 
 ## Phase 1: ROM analysis
 

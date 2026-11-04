@@ -2,14 +2,17 @@
 //
 // Ostrich 7765 -- the DSP side: the outputs (the stereo mix and 16 mono outputs), MIDI per
 // machine, the panel's size and tab in the host's session.  Phase 2 (ROADMAP.md): the
-// TR-707 plays into the mix; the other machines and the mono outputs follow.
+// TR-505, TR-626 and TR-707 play into the mix; the TR-727 (no ROMs yet) and the mono
+// outputs follow.
 
 #include "DistrhoPlugin.hpp"
 #include "OstrichShared.hpp"
 #include "Version.hpp"
 
+#include "engine/PcmMachine.hpp"
 #include "engine/Resampler.hpp"
 #include "engine/Roms.hpp"
+#include "engine/SoundOrder.hpp"
 #include "engine/Tr707.hpp"
 
 #include <algorithm>
@@ -33,19 +36,7 @@ public:
 	{
 		for (uint32_t m = 0; m < kNumMachines; m ++)
 			m_channel[m] = 10;
-		m_roms.scan();
-		if (m_roms.has(kRom707IC34) && m_roms.has(kRom707IC35) && m_roms.has(kRom707IC19)
-		    && m_roms.has(kRom707IC22))
-		{
-			// IC34, then IC35 (both 32 KiB, checked by their SHA-1).
-			const auto &ic34 = m_roms.image(kRom707IC34), &ic35 = m_roms.image(kRom707IC35);
-			m_voices707.resize(ic34.size() + ic35.size());
-			std::memcpy(m_voices707.data(), ic34.data(), ic34.size());
-			std::memcpy(m_voices707.data() + ic34.size(), ic35.data(), ic35.size());
-			m_tr707 = std::make_unique<Tr707>(false);
-			m_tr707->setRoms({ m_voices707.data(), m_roms.image(kRom707IC19).data(),
-			                   m_roms.image(kRom707IC22).data() });
-		}
+		loadRoms();
 		sampleRateChanged(getSampleRate());
 	}
 
@@ -197,20 +188,28 @@ protected:
 		if (rate <= 0.0)
 			return;
 		// Input of the longest segment run() renders. The first one after a reset also fills
-		// the resampler's window (up to 2 * kHalf more).
+		// the resampler's window (up to 2 * kHalf more). All engines run at 100 kHz.
+		static_assert(Tr707::kRate == PcmMachine::kRate, "one internal rate");
 		m_maxIn = int(std::ceil(kMaxSegment * Tr707::kRate / rate)) + 2 * Resampler::kHalf + 8;
-		m_resampler707.init(Tr707::kRate, rate, 2, m_maxIn);
-		m_in707L.assign(size_t(m_maxIn), 0.0f);
-		m_in707R.assign(size_t(m_maxIn), 0.0f);
-		m_out707L.assign(kMaxSegment, 0.0f);
-		m_out707R.assign(kMaxSegment, 0.0f);
+		for (Slot &s : m_slots)
+		{
+			s.resampler.init(Tr707::kRate, rate, 2, m_maxIn);
+			s.inL.assign(size_t(m_maxIn), 0.0f);
+			s.inR.assign(size_t(m_maxIn), 0.0f);
+			s.outL.assign(kMaxSegment, 0.0f);
+			s.outR.assign(kMaxSegment, 0.0f);
+		}
 	}
 
 	void activate() override
 	{
-		m_resampler707.reset();
+		for (Slot &s : m_slots)
+			s.resampler.reset();
 		if (m_tr707)
 			m_tr707->reset();
+		for (auto &p : m_pcm)
+			if (p)
+				p->reset();
 	}
 
 	void run(const float **, float **outputs, uint32_t frames, const MidiEvent *events,
@@ -218,10 +217,8 @@ protected:
 	{
 		for (uint32_t c = 0; c < DISTRHO_PLUGIN_NUM_OUTPUTS; c ++)
 			std::memset(outputs[c], 0, sizeof(float) * frames);
-		if (!m_tr707)
-			return;
 
-		const float gain = std::pow(10.0f, m_volumeDb / 20.0f) * kTr707Trim;
+		const float gain = std::pow(10.0f, m_volumeDb / 20.0f) * kTrim;
 		uint32_t pos = 0, ev = 0;
 		while (pos < frames)
 		{
@@ -232,17 +229,26 @@ protected:
 			if (ev < eventCount)
 				end = std::min(end, std::max(events[ev].frame, pos + 1));
 			const int n = int(end - pos);
-			const int nIn = m_resampler707.inputFor(n);
-			if (nIn > m_maxIn)   // cannot happen (sampleRateChanged); never read past the buffers
-				break;
-			m_tr707->render(nIn, m_in707L.data(), m_in707R.data(), nullptr);
-			const float *in[2] = { m_in707L.data(), m_in707R.data() };
-			float *out[2] = { m_out707L.data(), m_out707R.data() };
-			m_resampler707.process(in, nIn, out, n);
-			for (int i = 0; i < n; i ++)
+			for (uint32_t m = 0; m < kNumMachines; m ++)
 			{
-				outputs[0][pos + i] += m_out707L[i] * gain;
-				outputs[1][pos + i] += m_out707R[i] * gain;
+				if (!playing(m))
+					continue;
+				Slot &s = m_slots[m];
+				const int nIn = s.resampler.inputFor(n);
+				if (nIn > m_maxIn)   // cannot happen (sampleRateChanged); never read past the buffers
+					continue;
+				if (m == kTR707)
+					m_tr707->render(nIn, s.inL.data(), s.inR.data(), nullptr);
+				else
+					m_pcm[m]->render(nIn, s.inL.data(), s.inR.data());
+				const float *in[2] = { s.inL.data(), s.inR.data() };
+				float *out[2] = { s.outL.data(), s.outR.data() };
+				s.resampler.process(in, nIn, out, n);
+				for (int i = 0; i < n; i ++)
+				{
+					outputs[0][pos + i] += s.outL[i] * gain;
+					outputs[1][pos + i] += s.outR[i] * gain;
+				}
 			}
 			pos = end;
 		}
@@ -253,9 +259,54 @@ protected:
 private:
 	// The longest piece run() renders at once, in host frames.
 	static constexpr uint32_t kMaxSegment = 128;
-	// The TR-707's level in the mix: MAME's output stage peaks at about +1.3 dBFS for a bass
-	// drum at velocity 127; -6 dB leaves room for several sounds at once.
-	static constexpr float kTr707Trim = 0.5f;
+	// Every machine's level in the mix, -6 dB: the TR-707 (MAME's output stage) peaks at
+	// about +1.3 dBFS for a bass drum at velocity 127, the TR-505's and TR-626's full-scale
+	// samples at up to +2.5 dBFS after the resampler. Leaves room for several sounds at once.
+	static constexpr float kTrim = 0.5f;
+
+	struct Slot
+	{
+		Resampler resampler;
+		std::vector<float> inL, inR, outL, outR;
+	};
+
+	bool playing(uint32_t m) const
+	{
+		return m == kTR707 ? m_tr707 != nullptr : m < 2 && m_pcm[m] != nullptr;
+	}
+
+	void loadRoms()
+	{
+		m_roms.scan();
+		if (m_roms.has(kRom707IC34) && m_roms.has(kRom707IC35) && m_roms.has(kRom707IC19)
+		    && m_roms.has(kRom707IC22))
+		{
+			// IC34, then IC35 (both 32 KiB, checked by their SHA-1).
+			const auto &ic34 = m_roms.image(kRom707IC34), &ic35 = m_roms.image(kRom707IC35);
+			m_voices707.resize(ic34.size() + ic35.size());
+			std::memcpy(m_voices707.data(), ic34.data(), ic34.size());
+			std::memcpy(m_voices707.data() + ic34.size(), ic35.data(), ic35.size());
+			m_tr707 = std::make_unique<Tr707>(false);
+			m_tr707->setRoms({ m_voices707.data(), m_roms.image(kRom707IC19).data(),
+			                   m_roms.image(kRom707IC22).data() });
+		}
+		// TR-505: any of the three known forms of its dump.
+		if (m_roms.has(kRom505Decoded))
+			m_soundOrder[kTR505] = m_roms.image(kRom505Decoded);
+		else if (m_roms.has(kRom505PinOrder))
+			m_soundOrder[kTR505] = tr505SoundOrder(m_roms.image(kRom505PinOrder), false);
+		else if (m_roms.has(kRom505Raw))
+			m_soundOrder[kTR505] = tr505SoundOrder(m_roms.image(kRom505Raw), true);
+		if (m_roms.has(kRom626))
+			m_soundOrder[kTR626] = tr626SoundOrder(m_roms.image(kRom626));
+		for (uint32_t m : { uint32_t(kTR505), uint32_t(kTR626) })
+		{
+			if (m_soundOrder[m].empty())
+				continue;
+			m_pcm[m] = std::make_unique<PcmMachine>(m == kTR505 ? PcmMachine::kTr505 : PcmMachine::kTr626);
+			m_pcm[m]->setRom(m_soundOrder[m].data());
+		}
+	}
 
 	void midi(const MidiEvent &e)
 	{
@@ -263,11 +314,15 @@ private:
 			return;
 		const uint8_t status = e.data[0] & 0xf0, channel = (e.data[0] & 0x0f) + 1;
 		const uint8_t note = e.data[1] & 0x7f, velocity = e.data[2] & 0x7f;
-		// Note off and velocity 0 do nothing (TR-727 firmware; the units play one shots).
+		// Note off and velocity 0 do nothing (TR-727 firmware; on the TR-505 a note off has
+		// no audible effect, measured): the units play one shots.
 		if (status != 0x90 || velocity == 0)
 			return;
 		if (m_tr707 && channel == m_channel[kTR707])
 			m_tr707->trigger(Tr707::noteToSound(false, note), velocity);
+		for (uint32_t m : { uint32_t(kTR505), uint32_t(kTR626) })
+			if (m_pcm[m] && channel == m_channel[m])
+				m_pcm[m]->trigger(PcmMachine::noteToSound(m_pcm[m]->model(), note), velocity);
 	}
 
 	float m_volumeDb = 0.0f;
@@ -276,9 +331,10 @@ private:
 	RomLibrary m_roms;
 	std::vector<uint8_t> m_voices707;
 	std::unique_ptr<Tr707> m_tr707;
-	Resampler m_resampler707;
+	std::vector<uint8_t> m_soundOrder[2];          // TR-505, TR-626
+	std::unique_ptr<PcmMachine> m_pcm[2];
+	Slot m_slots[kNumMachines];
 	int m_maxIn = 0;
-	std::vector<float> m_in707L, m_in707R, m_out707L, m_out707R;
 
 	mutable std::mutex m_stateLock;
 	std::string m_uiSize, m_tab;

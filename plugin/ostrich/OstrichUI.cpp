@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Ostrich 7765 -- the panel.  A header, a tab per machine and one for the settings, the
-// machine's page, and a status line.  A machine's page has its ROM setup for now; the
-// columns per sound (level, pads with their notes, the machine's own controls) follow in
-// phase 4 (ROADMAP.md).
+// machine's page, and a status line.  A machine's page has a column per group of sounds
+// (its LEVEL, pads with their notes that play the sound when clicked) and the machine's
+// VOLUME; while its ROM images are missing, or on request, the page shows its ROM setup.
+// Two looks: VINTAGE (the units' beige, the default) and DARK; the choice is kept for all
+// instances in the panel's settings file.
 
 #include "DistrhoUI.hpp"
 #include "OstrichShared.hpp"
@@ -15,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -23,6 +26,7 @@ START_NAMESPACE_DISTRHO
 namespace {
 
 using namespace ostrich;
+using Clock = std::chrono::steady_clock;
 
 // Design units: the window's pixels at 100 %.
 constexpr float kW = DISTRHO_UI_DEFAULT_WIDTH, kH = DISTRHO_UI_DEFAULT_HEIGHT;
@@ -31,7 +35,6 @@ struct Rect { float x, y, w, h; bool contains(float px, float py) const
 	{ return px >= x && px < x + w && py >= y && py < y + h; } };
 
 constexpr float kMargin = 16.0f;
-constexpr float kHeaderH = 64.0f;
 constexpr float kTabY = 72.0f, kTabH = 30.0f, kTabW = 132.0f, kTabGap = 6.0f;
 constexpr float kBodyY = kTabY + kTabH;
 constexpr float kFooterH = 30.0f;
@@ -42,24 +45,123 @@ inline Rect tabRect(uint32_t t)
 	return { kMargin + float(t) * (kTabW + kTabGap), kTabY, kTabW, kTabH };
 }
 
-// A colour per tab, as the stripes over the columns in the reference panel.
-const Color kTabColour[kNumTabs] = {
-	Color(232, 140, 40),    // TR-505
-	Color(80, 160, 225),    // TR-626
-	Color(215, 58, 48),     // TR-707
-	Color(232, 196, 60),    // TR-727
-	Color(170, 170, 176),   // Settings
-};
-
 const char *const kTabLabels[kNumTabs] = { "TR-505", "TR-626", "TR-707", "TR-727", "SETTINGS" };
-
-// What each page says until it has its sounds.
 const char *const kMachineTitles[kNumMachines] = {
 	"TR-505  RHYTHM COMPOSER", "TR-626  RHYTHM COMPOSER", "TR-707  RHYTHM COMPOSER",
 	"TR-727  RHYTHM COMPOSER",
 };
 
-// ---- the ROM setup on each machine's page ----------------------------------------------
+// ---- the looks ---------------------------------------------------------------------------
+
+struct Theme
+{
+	Color back, panel, column, edge, ink, inkDim, accent;
+	Color tabOff, tabOffEdge, button, field;
+	Color knob, knobTrack, knobMark;
+	Color ok, warn, bad;
+	Color tab[kNumTabs];                    ///< a colour per tab: the stripes, the titles
+	Color zone[4];                          ///< the columns' colours, left to right
+	Color padInk[4];                        ///< the text on a pad of each zone
+};
+
+const Theme kDark {
+	Color(28, 28, 30), Color(36, 36, 40), Color(42, 42, 47), Color(58, 58, 64),
+	Color(235, 235, 235), Color(150, 150, 156), Color(232, 128, 40),
+	Color(30, 30, 33), Color(44, 44, 48), Color(48, 48, 54), Color(28, 28, 30),
+	Color(24, 24, 26), Color(70, 70, 76), Color(235, 235, 235),
+	Color(140, 210, 140), Color(230, 170, 120), Color(150, 60, 52),
+	{ Color(232, 140, 40), Color(80, 160, 225), Color(215, 58, 48), Color(232, 196, 60), Color(170, 170, 176) },
+	{ Color(205, 52, 44), Color(226, 118, 34), Color(230, 186, 52), Color(222, 216, 198) },
+	{ Color(255, 255, 255), Color(255, 255, 255), Color(40, 36, 30), Color(40, 36, 30) },
+};
+
+// The beige of the units' cases, their dark grey lettering, the colours of their keys.
+const Theme kVintage {
+	Color(196, 189, 172), Color(214, 208, 193), Color(226, 221, 207), Color(160, 152, 135),
+	Color(38, 36, 33), Color(100, 95, 86), Color(196, 92, 28),
+	Color(184, 177, 160), Color(165, 158, 142), Color(202, 196, 180), Color(238, 234, 223),
+	Color(48, 47, 46), Color(176, 169, 153), Color(240, 238, 232),
+	Color(46, 128, 56), Color(168, 88, 28), Color(176, 62, 50),
+	{ Color(204, 104, 24), Color(40, 112, 180), Color(190, 44, 36), Color(196, 150, 20), Color(110, 106, 98) },
+	{ Color(200, 50, 42), Color(222, 114, 32), Color(232, 186, 48), Color(246, 244, 238) },
+	{ Color(255, 255, 255), Color(255, 255, 255), Color(40, 36, 30), Color(40, 36, 30) },
+};
+
+enum Look : int { kLookVintage = 0, kLookDark = 1 };
+
+// The panel's own settings, for all instances: the look.
+std::filesystem::path settingsFile()
+{
+#ifdef _WIN32
+	const char *pd = std::getenv("ProgramData");
+	return std::filesystem::path(std::string(pd && *pd ? pd : "C:\\ProgramData")) / "Ostrich 7765" / "panel.txt";
+#else
+	if (const char *x = std::getenv("XDG_CONFIG_HOME"); x && *x)
+		return std::filesystem::path(x) / "Ostrich 7765" / "panel.txt";
+	const char *h = std::getenv("HOME");
+	return std::filesystem::path(h && *h ? h : ".") / ".config" / "Ostrich 7765" / "panel.txt";
+#endif
+}
+
+int loadLook()
+{
+	FILE *f = std::fopen(settingsFile().string().c_str(), "rb");
+	if (!f)
+		return kLookVintage;
+	char line[64] = {};
+	int look = kLookVintage;
+	while (std::fgets(line, sizeof(line), f))
+		if (std::strncmp(line, "look=dark", 9) == 0)
+			look = kLookDark;
+	std::fclose(f);
+	return look;
+}
+
+void saveLook(int look)
+{
+	std::error_code ec;
+	std::filesystem::create_directories(settingsFile().parent_path(), ec);
+	if (FILE *f = std::fopen(settingsFile().string().c_str(), "wb"))
+	{
+		std::fputs(look == kLookDark ? "look=dark\n" : "look=vintage\n", f);
+		std::fclose(f);
+	}
+}
+
+// ---- a machine's page: the columns ---------------------------------------------------------
+
+constexpr float kColGap = 6, kColTop = kBodyY + 36, kColBottom = kBodyY + 410;
+constexpr float kKnobR = 22, kKnobDy = 84;
+constexpr float kPadW = 34, kPadH = 40, kPadGap = 5;
+
+// Column c of a machine's n columns; c == n is its VOLUME.
+inline Rect columnRect(uint32_t n, uint32_t c)
+{
+	const float w = (kBody.w - 16 - float(n) * kColGap) / float(n + 1);
+	return { kBody.x + 8 + float(c) * (w + kColGap), kColTop, w, kColBottom - kColTop };
+}
+
+inline float knobX(const Rect &r) { return r.x + r.w / 2; }
+inline float knobY(const Rect &r) { return r.y + kKnobDy; }
+
+// Pad k of a column of `count` pads: as many in a row as fit, the last row at the bottom.
+inline Rect padRect(const Rect &col, uint32_t count, uint32_t k)
+{
+	const uint32_t perRow = std::max(1u, std::min(count, uint32_t((col.w - 8 + kPadGap) / (kPadW + kPadGap))));
+	const uint32_t rows = (count + perRow - 1) / perRow;
+	const uint32_t row = k / perRow, inRow = std::min(perRow, count - row * perRow);
+	const float rowW = float(inRow) * kPadW + float(inRow - 1) * kPadGap;
+	const float x = col.x + (col.w - rowW) / 2 + float(k % perRow) * (kPadW + kPadGap);
+	const float y = col.y + col.h - 14 - float(rows - row) * (kPadH + 16) + 16;
+	return { x, y, kPadW, kPadH };
+}
+
+// The colour zone of column c of n (as the reference panel: red, orange, yellow, cream).
+inline uint32_t zoneOf(uint32_t n, uint32_t c) { return std::min(3u, c * 4 / n); }
+
+const Rect kRomToggle { kBody.x + kBody.w - 158, kBody.y + 8, 150, 22 };
+
+// ---- a machine's page: the ROM setup -------------------------------------------------------
 
 // The rows of a machine's ROM list: what it needs, and the images (RomImage, Roms.hpp)
 // any one of which fills the row.  -1 ends a list.
@@ -88,16 +190,17 @@ inline Rect romButton(uint32_t rows)
 	return { kRomX, kRomY + float(rows) * kRomRowH + 22, 220, 32 };
 }
 
-// The settings page: a row per machine with its MIDI channel, - and + either side.
+// ---- the settings page ---------------------------------------------------------------------
+
+// A row per machine with its MIDI channel, - and + either side; the look below.
 const float kChanX = kBody.x + 40, kChanY = kBody.y + 92;
 constexpr float kChanRowH = 44;
 constexpr float kChanBtn = 28, kChanBoxW = 56;
 inline Rect chanMinus(uint32_t m) { return { kChanX + 150, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
 inline Rect chanBox(uint32_t m) { return { kChanX + 150 + kChanBtn + 6, kChanY + m * kChanRowH, kChanBoxW, kChanBtn }; }
 inline Rect chanPlus(uint32_t m) { return { kChanX + 150 + kChanBtn + 12 + kChanBoxW, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
-
-const Color kBack(28, 28, 30), kPanel(36, 36, 40), kEdge(58, 58, 64);
-const Color kInk(235, 235, 235), kInkDim(150, 150, 156), kOrange(232, 128, 40);
+const float kLookY = kChanY + 4 * kChanRowH + 52;
+inline Rect lookButton(int look) { return { kChanX + 150 + float(look) * 118, kLookY, 110, 28 }; }
 
 } // anonymous namespace
 
@@ -113,33 +216,47 @@ public:
 		loadSharedResources();
 		for (uint32_t m = 0; m < kNumMachines; m ++)
 			m_channel[m] = kDefaultChannel[m];
+		for (float &v : m_value)
+			v = 1.0f;
+		for (uint32_t m = 0; m < kNumMachines; m ++)
+			m_value[kParamMachineVolume + m] = 0.0f;
+		m_value[kParamVolume] = 0.0f;
 		m_romFile.resize(kNumRomImagesUi);
+		m_look = loadLook();
 	}
 
 protected:
 	void parameterChanged(uint32_t index, float value) override
 	{
+		if (index >= kParamCount)
+			return;
+		m_value[index] = value;
 		if (index >= kParamChannel && index < kParamChannel + kMachineCount)
-		{
 			m_channel[index - kParamChannel] = int(std::lround(value));
-			repaint();
-		}
+		repaint();
 	}
 
 	bool onScroll(const ScrollEvent &ev) override
 	{
-		if (m_tab != kTabSettings)
-			return false;
 		const float s = mouseScale();
 		const float x = float(ev.pos.getX()) / s, y = float(ev.pos.getY()) / s;
-		for (uint32_t m = 0; m < kNumMachines; m ++)
-			if (chanBox(m).contains(x, y) || chanMinus(m).contains(x, y) || chanPlus(m).contains(x, y))
-			{
-				if (ev.delta.getY() != 0)
-					changeChannel(m, ev.delta.getY() > 0 ? 1 : -1);
-				return true;
-			}
-		return false;
+		if (ev.delta.getY() == 0)
+			return false;
+		const int dir = ev.delta.getY() > 0 ? 1 : -1;
+		if (m_tab == kTabSettings)
+		{
+			for (uint32_t m = 0; m < kNumMachines; m ++)
+				if (chanBox(m).contains(x, y) || chanMinus(m).contains(x, y) || chanPlus(m).contains(x, y))
+					return changeChannel(m, dir), true;
+			return false;
+		}
+		const int p = knobAt(x, y);
+		if (p < 0)
+			return false;
+		const bool fine = ev.mod & kModifierShift;
+		const float f = fine ? (isVolume(uint32_t(p)) ? 0.5f : 0.25f) : 1.0f;
+		setValue(uint32_t(p), m_value[p] + float(dir) * step(uint32_t(p)) * f, true);
+		return true;
 	}
 
 	void stateChanged(const char *key, const char *value) override
@@ -164,10 +281,21 @@ protected:
 
 	bool onMouse(const MouseEvent &ev) override
 	{
-		if (ev.button != 1 || !ev.press)
+		if (ev.button != 1)
 			return false;
 		const float s = mouseScale();
 		const float x = float(ev.pos.getX()) / s, y = float(ev.pos.getY()) / s;
+		if (!ev.press)
+		{
+			if (m_drag >= 0)
+			{
+				editParameter(uint32_t(m_drag), false);
+				m_drag = -1;
+				repaint();
+				return true;
+			}
+			return false;
+		}
 		for (uint32_t t = 0; t < kNumTabs; t ++)
 			if (tabRect(t).contains(x, y))
 			{
@@ -182,6 +310,7 @@ protected:
 				return true;
 			}
 		if (m_tab == kTabSettings)
+		{
 			for (uint32_t m = 0; m < kNumMachines; m ++)
 			{
 				if (chanMinus(m).contains(x, y))
@@ -189,10 +318,79 @@ protected:
 				if (chanPlus(m).contains(x, y))
 					return changeChannel(m, 1), true;
 			}
-		if (m_tab < kNumMachines && kRomRows[m_tab].count
-		    && romButton(kRomRows[m_tab].count).contains(x, y))
-			return browseRom(m_tab), true;
+			for (int look : { kLookVintage, kLookDark })
+				if (lookButton(look).contains(x, y))
+				{
+					if (look != m_look)
+					{
+						m_look = look;
+						saveLook(look);
+						repaint();
+					}
+					return true;
+				}
+			return false;
+		}
+		const uint32_t m = m_tab;
+		if (showingRoms(m))
+		{
+			if (romsComplete(m) && kRomToggle.contains(x, y))
+				return m_showRoms[m] = false, repaint(), true;
+			if (kRomRows[m].count && romButton(kRomRows[m].count).contains(x, y))
+				return browseRom(m), true;
+			return false;
+		}
+		if (kRomToggle.contains(x, y))
+			return m_showRoms[m] = true, repaint(), true;
+		// A knob: drag it; a second click soon after puts it back to its default.
+		if (const int p = knobAt(x, y); p >= 0)
+		{
+			const auto now = Clock::now();
+			if (p == m_lastKnob && now - m_lastKnobAt < std::chrono::milliseconds(350))
+			{
+				setValue(uint32_t(p), defaultOf(uint32_t(p)), true);
+				m_lastKnob = -1;
+				return true;
+			}
+			m_lastKnob = p;
+			m_lastKnobAt = now;
+			m_drag = p;
+			m_dragY = y;
+			m_dragFrom = m_value[p];
+			editParameter(uint32_t(p), true);
+			repaint();
+			return true;
+		}
+		// A pad: plays its sound on the machine's channel.
+		const Columns &cs = kColumns[m];
+		for (uint32_t c = 0; c < cs.count; c ++)
+		{
+			const Column &col = cs.columns[c];
+			const Rect r = columnRect(cs.count, c);
+			for (uint32_t k = 0; k < col.numPads; k ++)
+				if (padRect(r, col.numPads, k).contains(x, y))
+				{
+					sendNote(uint8_t(m_channel[m] - 1), col.pads[k].note, (ev.mod & kModifierShift) ? 64 : 127);
+					m_flash[m][c * 3 + k] = Clock::now();
+					repaint();
+					return true;
+				}
+		}
 		return false;
+	}
+
+	bool onMotion(const MotionEvent &ev) override
+	{
+		if (m_drag < 0)
+			return false;
+		const float s = mouseScale();
+		const float y = float(ev.pos.getY()) / s;
+		const uint32_t p = uint32_t(m_drag);
+		// 200 units of travel for the whole range; Shift: five times finer.
+		const float span = rangeMax(p) - rangeMin(p);
+		const float per = (ev.mod & kModifierShift) ? 1000.0f : 200.0f;
+		setValue(p, m_dragFrom + (m_dragY - y) / per * span, false);
+		return true;
 	}
 
 	void uiFileBrowserSelected(const char *filename) override
@@ -204,7 +402,7 @@ protected:
 		m_romDir = dirOf(filename);
 		m_romAsked = ++ m_romSeq;
 		m_romAskedMachine = uint32_t(m);
-		m_romAskedAt = std::chrono::steady_clock::now();
+		m_romAskedAt = Clock::now();
 		const std::string msg = std::to_string(m_romSeq) + " " + std::to_string(m) + " " + filename;
 		setState("romfile", msg.c_str());
 		repaint();
@@ -225,28 +423,112 @@ protected:
 
 	void uiIdle() override
 	{
-		if (!m_frameFitted && std::chrono::steady_clock::now() - m_created < std::chrono::seconds(2))
+		const auto now = Clock::now();
+		if (!m_frameFitted && now - m_created < std::chrono::seconds(2))
 			fitHostFrame();
 		saveSizeWhenSettled();
 		// No answer from the DSP: say so rather than wait for ever.
-		if (m_romAsked && std::chrono::steady_clock::now() - m_romAskedAt > std::chrono::seconds(20))
+		if (m_romAsked && now - m_romAskedAt > std::chrono::seconds(20))
 		{
 			m_romAsked = 0;
 			m_romMsgMachine = m_romAskedMachine;
 			m_romMsg = "No answer from the plugin. Is it running (an active track)?";
 			repaint();
 		}
+		// A pad's lamp goes out again.
+		bool lit = false;
+		for (const auto &f : m_flash)
+			for (const auto &t : f)
+				lit |= now - t < kFlash + std::chrono::milliseconds(60);
+		if (lit)
+			repaint();
 	}
 
 private:
+	static constexpr auto kFlash = std::chrono::milliseconds(140);
+
+	const Theme &theme() const { return m_look == kLookDark ? kDark : kVintage; }
+
+	// ---- values ----------------------------------------------------------------------------
+
+	static bool isVolume(uint32_t p)
+	{
+		return p == kParamVolume || (p >= kParamMachineVolume && p < kParamMachineVolume + kMachineCount);
+	}
+	static float rangeMin(uint32_t p) { return isVolume(p) ? -40.0f : 0.0f; }
+	static float rangeMax(uint32_t p) { return isVolume(p) ? 6.0f : 1.0f; }
+	static float defaultOf(uint32_t p) { return isVolume(p) ? 0.0f : 1.0f; }
+	static float step(uint32_t p) { return isVolume(p) ? 1.0f : 0.02f; }
+
+	// The knob's position, 0..1.
+	float position(uint32_t p) const
+	{
+		return (m_value[p] - rangeMin(p)) / (rangeMax(p) - rangeMin(p));
+	}
+
+	void setValue(uint32_t p, float v, bool gesture)
+	{
+		v = std::max(rangeMin(p), std::min(rangeMax(p), v));
+		if (isVolume(p))
+			v = std::round(v * 2.0f) / 2.0f;     // half dB steps
+		if (v == m_value[p])
+			return;
+		m_value[p] = v;
+		if (gesture)
+			editParameter(p, true);
+		setParameterValue(p, v);
+		if (gesture)
+			editParameter(p, false);
+		repaint();
+	}
+
+	// The parameter of the knob under (x, y) on the current machine's page, or -1.
+	int knobAt(float x, float y) const
+	{
+		if (m_tab >= kNumMachines || showingRoms(m_tab))
+			return -1;
+		const uint32_t m = m_tab, n = kColumns[m].count;
+		for (uint32_t c = 0; c <= n; c ++)
+		{
+			const Rect r = columnRect(n, c);
+			const float dx = x - knobX(r), dy = y - knobY(r);
+			if (dx * dx + dy * dy <= (kKnobR + 8) * (kKnobR + 8))
+				return int(c == n ? kParamMachineVolume + m : levelParam(m, c));
+		}
+		return -1;
+	}
+
+	// ---- ROMs --------------------------------------------------------------------------------
+
+	bool romsComplete(uint32_t m) const
+	{
+		const RomRows &rr = kRomRows[m];
+		if (rr.count == 0)
+			return false;
+		for (uint32_t r = 0; r < rr.count; r ++)
+		{
+			bool found = false;
+			for (int k = 0; k < 4 && rr.rows[r].images[k] >= 0; k ++)
+				found |= !m_romFile[size_t(rr.rows[r].images[k])].empty();
+			if (!found)
+				return false;
+		}
+		return true;
+	}
+
+	bool showingRoms(uint32_t m) const { return m_showRoms[m] || !romsComplete(m); }
+
+	// ---- drawing -------------------------------------------------------------------------------
+
 	void drawPanel()
 	{
+		const Theme &t = theme();
 		const float s = getWidth() / kW;
 		scale(s, s);
 
 		beginPath();
 		rect(0, 0, kW, kH);
-		fillColor(kBack);
+		fillColor(t.back);
 		fill();
 
 		// The stripe along the top, in the colours of the machines.
@@ -255,22 +537,22 @@ private:
 		{
 			beginPath();
 			rect(float(m) * sw, 0, sw, 4);
-			fillColor(kTabColour[m]);
+			fillColor(t.tab[m]);
 			fill();
 		}
 
 		fontFace(NANOVG_DEJAVU_SANS_TTF);
 		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
-		fillColor(kInk);
+		fillColor(t.ink);
 		fontSize(28);
 		text(kMargin, 46, "OSTRICH 7765", nullptr);
 		fontSize(12);
-		fillColor(kOrange);
+		fillColor(t.accent);
 		text(kMargin + 218, 46, "TR-505  \xc2\xb7  TR-626  \xc2\xb7  TR-707  \xc2\xb7  TR-727", nullptr);
 
 		textAlign(ALIGN_RIGHT | ALIGN_BASELINE);
 		fontSize(12);
-		fillColor(kInkDim);
+		fillColor(t.inkDim);
 		text(kW - kMargin, 46, "Ostrich 7765 " OSTRICH_VERSION_STRING "  \xe2\x80\x93  github.com/Helge666/ostrich7765", nullptr);
 
 		drawTabs();
@@ -280,77 +562,224 @@ private:
 
 	void drawTabs()
 	{
+		const Theme &th = theme();
 		for (uint32_t t = 0; t < kNumTabs; t ++)
 		{
 			const Rect r = tabRect(t);
 			const bool on = t == m_tab;
 			beginPath();
 			roundedRect(r.x, r.y, r.w, r.h + (on ? 4 : -2), 4);
-			fillColor(on ? kPanel : Color(30, 30, 33));
+			fillColor(on ? th.panel : th.tabOff);
 			fill();
-			strokeColor(on ? kEdge : Color(44, 44, 48));
+			strokeColor(on ? th.edge : th.tabOffEdge);
 			strokeWidth(1);
 			stroke();
 			beginPath();
 			rect(r.x + 10, r.y + 4, r.w - 20, 2);
-			fillColor(on ? kTabColour[t] : Color(kTabColour[t], Color(30, 30, 33), 0.65f));
+			fillColor(on ? th.tab[t] : Color(th.tab[t], th.tabOff, 0.65f));
 			fill();
 			fontSize(13);
 			textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
-			fillColor(on ? kInk : kInkDim);
+			fillColor(on ? th.ink : th.inkDim);
 			text(r.x + r.w / 2, r.y + r.h / 2 + 2, kTabLabels[t], nullptr);
 		}
 	}
 
 	void drawBody()
 	{
+		const Theme &th = theme();
 		beginPath();
 		roundedRect(kBody.x, kBody.y, kBody.w, kBody.h, 4);
-		fillColor(kPanel);
+		fillColor(th.panel);
 		fill();
-		strokeColor(kEdge);
+		strokeColor(th.edge);
 		strokeWidth(1);
 		stroke();
 		// The open tab merges into the page.
 		const Rect t = tabRect(m_tab);
 		beginPath();
 		rect(t.x + 1, kBody.y - 1, t.w - 2, 3);
-		fillColor(kPanel);
+		fillColor(th.panel);
 		fill();
 
 		if (m_tab < kNumMachines)
-			return drawRoms(m_tab);
-		drawChannels();
-
-		// What is still to come, to the right.
-		const float rx = kBody.x + kBody.w * 0.55f;
-		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
-		fontSize(15);
-		fillColor(kInk);
-		text(rx, kBody.y + 50, "TO COME", nullptr);
-		fontSize(13);
-		fillColor(kInkDim);
-		text(rx, kBody.y + 110, "The assignment of the sounds to OUT 1-16.", nullptr);
-		text(rx, kBody.y + 132, "Vintage timing: the original CPU's MIDI grid and jitter.", nullptr);
+		{
+			if (showingRoms(m_tab))
+				drawRoms(m_tab);
+			else
+				drawColumns(m_tab);
+			return;
+		}
+		drawSettings();
 	}
 
-	// A machine's page: its title, the ROM images it needs and where they came from, a
-	// button to pick a file, and the answer to the last pick.
+	void drawButton(const Rect &b, const char *label, bool lit, bool enabled = true)
+	{
+		const Theme &th = theme();
+		beginPath();
+		roundedRect(b.x, b.y, b.w, b.h, 4);
+		fillColor(lit ? Color(th.button, th.accent, 0.25f) : th.button);
+		fill();
+		strokeColor(lit ? th.accent : th.edge);
+		strokeWidth(1);
+		stroke();
+		textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
+		fontSize(12);
+		fillColor(enabled ? th.ink : th.inkDim);
+		text(b.x + b.w / 2, b.y + b.h / 2 + 1, label, nullptr);
+	}
+
+	// A machine's page: its title and channel, a column per group of sounds, its volume.
+	void drawColumns(uint32_t m)
+	{
+		const Theme &th = theme();
+		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
+		fontSize(15);
+		fillColor(th.tab[m]);
+		text(kBody.x + 12, kBody.y + 25, kMachineTitles[m], nullptr);
+		char ch[32];
+		std::snprintf(ch, sizeof(ch), "MIDI CHANNEL %d", m_channel[m]);
+		fontSize(11);
+		fillColor(th.inkDim);
+		text(kBody.x + 250, kBody.y + 24, ch, nullptr);
+		drawButton(kRomToggle, "ROM IMAGES ...", false);
+
+		const Columns &cs = kColumns[m];
+		const auto now = Clock::now();
+		for (uint32_t c = 0; c <= cs.count; c ++)
+		{
+			const Rect r = columnRect(cs.count, c);
+			const bool volume = c == cs.count;
+			const uint32_t z = volume ? 3 : zoneOf(cs.count, c);
+			const Color colour = volume ? th.inkDim : th.zone[z];
+			beginPath();
+			roundedRect(r.x, r.y, r.w, r.h, 4);
+			fillColor(th.column);
+			fill();
+			strokeColor(th.edge);
+			strokeWidth(1);
+			stroke();
+
+			// The title, one or two lines, and the stripe under it.
+			const char *title = volume ? "VOLUME" : cs.columns[c].title;
+			const char *nl = std::strchr(title, '\n');
+			textAlign(ALIGN_CENTER | ALIGN_BASELINE);
+			fontSize(10.5f);
+			fillColor(th.ink);
+			if (nl)
+			{
+				text(r.x + r.w / 2, r.y + 18, title, nl);
+				text(r.x + r.w / 2, r.y + 31, nl + 1, nullptr);
+			}
+			else
+				text(r.x + r.w / 2, r.y + 25, title, nullptr);
+			beginPath();
+			rect(r.x + 8, r.y + 38, r.w - 16, 2);
+			fillColor(volume ? th.edge : Color(colour, th.ink, 0.15f));
+			fill();
+
+			const uint32_t p = volume ? kParamMachineVolume + m : levelParam(m, c);
+			drawKnob(knobX(r), knobY(r), position(p), volume ? th.inkDim : colour, p == uint32_t(m_drag));
+			char label[24];
+			if (p == uint32_t(m_drag))
+				volume ? std::snprintf(label, sizeof(label), "%+.1f dB", double(m_value[p]))
+				       : std::snprintf(label, sizeof(label), "%d %%", int(std::lround(m_value[p] * 100)));
+			else
+				std::snprintf(label, sizeof(label), volume ? "%+.1f dB" : "LEVEL", double(m_value[p]));
+			textAlign(ALIGN_CENTER | ALIGN_BASELINE);
+			fontSize(10.5f);
+			fillColor(p == uint32_t(m_drag) ? th.ink : th.inkDim);
+			text(knobX(r), knobY(r) + kKnobR + 22, label, nullptr);
+			if (volume)
+				continue;
+
+			// The pads: label and note; the lamp above lights when clicked.
+			const Column &col = cs.columns[c];
+			for (uint32_t k = 0; k < col.numPads; k ++)
+			{
+				const Rect pr = padRect(r, col.numPads, k);
+				const bool lit = now - m_flash[m][c * 3 + k] < kFlash;
+				beginPath();
+				circle(pr.x + pr.w / 2, pr.y - 8, 2.5f);
+				fillColor(lit ? Color(255, 70, 50) : Color(th.edge, th.column, 0.3f));
+				fill();
+				beginPath();
+				roundedRect(pr.x, pr.y, pr.w, pr.h, 3);
+				fillColor(lit ? Color(th.zone[z], Color(255, 255, 255), 0.35f) : th.zone[z]);
+				fill();
+				strokeColor(Color(th.zone[z], Color(0, 0, 0), 0.25f));
+				strokeWidth(1);
+				stroke();
+				fillColor(th.padInk[z]);
+				textAlign(ALIGN_CENTER | ALIGN_BASELINE);
+				fontSize(11);
+				text(pr.x + pr.w / 2, pr.y + 18, col.pads[k].label, nullptr);
+				char note[8];
+				std::snprintf(note, sizeof(note), "%u", unsigned(col.pads[k].note));
+				fontSize(9);
+				fillColor(Color(th.padInk[z], th.zone[z], 0.3f));
+				text(pr.x + pr.w / 2, pr.y + 33, note, nullptr);
+			}
+		}
+	}
+
+	// A knob of 270 degrees: the track, the value's arc in the column's colour, the cap with
+	// its mark.
+	void drawKnob(float cx, float cy, float pos, const Color &colour, bool active)
+	{
+		const Theme &th = theme();
+		const float a0 = float(M_PI) * 0.75f, a1 = float(M_PI) * 2.25f;
+		const float a = a0 + (a1 - a0) * std::max(0.0f, std::min(1.0f, pos));
+		beginPath();
+		arc(cx, cy, kKnobR + 5, a0, a1, CW);
+		strokeColor(th.knobTrack);
+		strokeWidth(3);
+		stroke();
+		if (pos > 0.001f)
+		{
+			beginPath();
+			arc(cx, cy, kKnobR + 5, a0, a, CW);
+			strokeColor(colour);
+			strokeWidth(3);
+			stroke();
+		}
+		beginPath();
+		circle(cx, cy, kKnobR);
+		fillPaint(radialGradient(cx - 6, cy - 8, 2, kKnobR + 4,
+		                         Color(th.knob, Color(255, 255, 255), 0.18f), th.knob));
+		fill();
+		strokeColor(active ? colour : Color(th.knob, Color(0, 0, 0), 0.4f));
+		strokeWidth(active ? 2 : 1);
+		stroke();
+		beginPath();
+		moveTo(cx + std::cos(a) * kKnobR * 0.3f, cy + std::sin(a) * kKnobR * 0.3f);
+		lineTo(cx + std::cos(a) * kKnobR * 0.88f, cy + std::sin(a) * kKnobR * 0.88f);
+		strokeColor(th.knobMark);
+		strokeWidth(2.5f);
+		lineCap(ROUND);
+		stroke();
+	}
+
+	// A machine's page, ROM setup: its title, the ROM images it needs and where they came
+	// from, a button to pick a file, and the answer to the last pick.
 	void drawRoms(uint32_t m)
 	{
+		const Theme &th = theme();
 		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
 		fontSize(22);
-		fillColor(kTabColour[m]);
+		fillColor(th.tab[m]);
 		text(kRomX, kBody.y + 44, kMachineTitles[m], nullptr);
 		fontSize(15);
-		fillColor(kInk);
+		fillColor(th.ink);
 		text(kRomX, kBody.y + 76, "ROM IMAGES", nullptr);
+		if (romsComplete(m))
+			drawButton(kRomToggle, "BACK TO THE SOUNDS", false);
 
 		const RomRows &rr = kRomRows[m];
 		if (rr.count == 0)
 		{
 			fontSize(13);
-			fillColor(kInkDim);
+			fillColor(th.inkDim);
 			text(kRomX, kRomY + 14, "No dumps of the TR-727's sound ROMs are known yet. The engine is prepared;", nullptr);
 			text(kRomX, kRomY + 34, "it plays once someone dumps them.", nullptr);
 			return;
@@ -367,51 +796,155 @@ private:
 			// A lamp: found or missing.
 			beginPath();
 			circle(kRomX + 6, y - 4, 5);
-			fillColor(file.empty() ? Color(150, 60, 52) : Color(90, 190, 100));
+			fillColor(file.empty() ? th.bad : th.ok);
 			fill();
 			fontSize(14);
-			fillColor(kInk);
+			fillColor(th.ink);
 			text(kRomX + 22, y, row.chip, nullptr);
 			fontSize(12);
-			fillColor(kInkDim);
+			fillColor(th.inkDim);
 			text(kRomX + 130, y, row.what, nullptr);
-			fillColor(file.empty() ? Color(210, 120, 100) : kInk);
+			fillColor(file.empty() ? th.warn : th.ink);
 			text(kRomX + 640, y, file.empty() ? "missing" : file.c_str(), nullptr);
 		}
 
 		const Rect b = romButton(rr.count);
 		const bool busy = m_romAsked != 0;
-		beginPath();
-		roundedRect(b.x, b.y, b.w, b.h, 4);
-		fillColor(busy ? Color(40, 40, 44) : Color(48, 48, 54));
-		fill();
-		strokeColor(busy ? kEdge : Color(kTabColour[m], kEdge, 0.4f));
-		strokeWidth(1);
-		stroke();
-		textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
-		fontSize(13);
-		fillColor(busy ? kInkDim : kInk);
-		text(b.x + b.w / 2, b.y + b.h / 2 + 1, busy ? "LOOKING ..." : "CHOOSE A ROM FILE ...", nullptr);
+		drawButton(b, busy ? "LOOKING ..." : "CHOOSE A ROM FILE ...", !busy, !busy);
 
 		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
 		fontSize(12);
-		fillColor(kInkDim);
+		fillColor(th.inkDim);
 		text(b.x + b.w + 20, b.y + 13, "Pick any image of the set, or a zip (MAME's). Its whole folder is searched; what is", nullptr);
 		text(b.x + b.w + 20, b.y + 29, ("found is copied to " + m_romInstallDir + ", by content, whatever the names.").c_str(), nullptr);
 
 		if (!m_romMsg.empty() && m_romMsgMachine == m)
 		{
 			fontSize(13);
-			fillColor(all ? Color(140, 210, 140) : Color(230, 170, 120));
+			fillColor(all ? th.ok : th.warn);
 			text(kRomX, b.y + b.h + 34, m_romMsg.c_str(), nullptr);
 		}
 		else if (all)
 		{
 			fontSize(13);
-			fillColor(kInkDim);
-			text(kRomX, b.y + b.h + 34, "All there: it plays. Its sounds and controls follow on this page (ROADMAP.md, phase 4).", nullptr);
+			fillColor(th.inkDim);
+			text(kRomX, b.y + b.h + 34, "All there: it plays.", nullptr);
 		}
 	}
+
+	void drawSettings()
+	{
+		const Theme &th = theme();
+		drawChannels();
+
+		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
+		fontSize(15);
+		fillColor(th.ink);
+		text(kChanX, kLookY - 22, "LOOK", nullptr);
+		textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+		fontSize(12);
+		fillColor(th.inkDim);
+		text(kChanX, kLookY + 14, "For all instances", nullptr);
+		drawButton(lookButton(kLookVintage), "VINTAGE", m_look == kLookVintage);
+		drawButton(lookButton(kLookDark), "DARK", m_look == kLookDark);
+
+		// What is still to come, to the right.
+		const float rx = kBody.x + kBody.w * 0.55f;
+		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
+		fontSize(15);
+		fillColor(th.ink);
+		text(rx, kBody.y + 50, "TO COME", nullptr);
+		fontSize(13);
+		fillColor(th.inkDim);
+		text(rx, kBody.y + 110, "The assignment of the sounds to OUT 1-16.", nullptr);
+		text(rx, kBody.y + 132, "Vintage timing: the original CPU's MIDI grid and jitter.", nullptr);
+		text(rx, kBody.y + 154, "The machines' own controls (TR-707 accent, TR-626 tuning).", nullptr);
+	}
+
+	void drawChannels()
+	{
+		const Theme &th = theme();
+		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
+		fontSize(15);
+		fillColor(th.ink);
+		text(kChanX, kBody.y + 50, "MIDI CHANNELS", nullptr);
+		fontSize(12);
+		fillColor(th.inkDim);
+		text(kChanX, kBody.y + 70, "Each machine listens on its own channel. Click - / + or use the mouse wheel.", nullptr);
+
+		for (uint32_t m = 0; m < kNumMachines; m ++)
+		{
+			const Rect minus = chanMinus(m), box = chanBox(m), plus = chanPlus(m);
+			textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+			fontSize(15);
+			fillColor(th.tab[m]);
+			text(kChanX, box.y + box.h / 2, kMachineNames[m], nullptr);
+
+			for (const Rect &b : { minus, plus })
+			{
+				beginPath();
+				roundedRect(b.x, b.y, b.w, b.h, 3);
+				fillColor(th.button);
+				fill();
+				strokeColor(th.edge);
+				strokeWidth(1);
+				stroke();
+			}
+			beginPath();
+			roundedRect(box.x, box.y, box.w, box.h, 3);
+			fillColor(th.field);
+			fill();
+			strokeColor(th.edge);
+			strokeWidth(1);
+			stroke();
+
+			textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
+			fontSize(17);
+			fillColor(th.ink);
+			text(minus.x + minus.w / 2, minus.y + minus.h / 2, "\xe2\x88\x92", nullptr);
+			text(plus.x + plus.w / 2, plus.y + plus.h / 2, "+", nullptr);
+			char value[8];
+			std::snprintf(value, sizeof(value), "%d", m_channel[m]);
+			fontSize(15);
+			text(box.x + box.w / 2, box.y + box.h / 2 + 1, value, nullptr);
+
+			if (m == kTR727)
+			{
+				textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+				fontSize(12);
+				fillColor(th.inkDim);
+				text(plus.x + plus.w + 16, box.y + box.h / 2, "no ROMs yet", nullptr);
+			}
+		}
+	}
+
+	void changeChannel(uint32_t m, int delta)
+	{
+		const int v = std::max(1, std::min(16, m_channel[m] + delta));
+		if (v == m_channel[m])
+			return;
+		m_channel[m] = v;
+		const uint32_t index = kParamChannel + m;
+		m_value[index] = float(v);
+		editParameter(index, true);
+		setParameterValue(index, float(v));
+		editParameter(index, false);
+		repaint();
+	}
+
+	void drawFooter()
+	{
+		const Theme &th = theme();
+		const float y = kH - kFooterH / 2;
+		fontSize(12);
+		textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+		fillColor(th.inkDim);
+		text(kMargin, y, "Click a pad to hear it (Shift: softer). Drag a knob or use the wheel, Shift: fine; click twice: reset.", nullptr);
+		textAlign(ALIGN_RIGHT | ALIGN_MIDDLE);
+		text(kW - kMargin, y, "No Roland data included. Not affiliated with Roland.", nullptr);
+	}
+
+	// ---- the ROM setup -------------------------------------------------------------------------
 
 	void browseRom(uint32_t m)
 	{
@@ -478,86 +1011,6 @@ private:
 		return cut == std::string::npos ? std::string() : path.substr(0, cut);
 	}
 
-	void drawChannels()
-	{
-		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
-		fontSize(15);
-		fillColor(kInk);
-		text(kChanX, kBody.y + 50, "MIDI CHANNELS", nullptr);
-		fontSize(12);
-		fillColor(kInkDim);
-		text(kChanX, kBody.y + 70, "Each machine listens on its own channel. Click - / + or use the mouse wheel.", nullptr);
-
-		for (uint32_t m = 0; m < kNumMachines; m ++)
-		{
-			const Rect minus = chanMinus(m), box = chanBox(m), plus = chanPlus(m);
-			textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
-			fontSize(15);
-			fillColor(kTabColour[m]);
-			text(kChanX, box.y + box.h / 2, kMachineNames[m], nullptr);
-
-			for (const Rect &b : { minus, plus })
-			{
-				beginPath();
-				roundedRect(b.x, b.y, b.w, b.h, 3);
-				fillColor(Color(48, 48, 54));
-				fill();
-				strokeColor(kEdge);
-				strokeWidth(1);
-				stroke();
-			}
-			beginPath();
-			roundedRect(box.x, box.y, box.w, box.h, 3);
-			fillColor(kBack);
-			fill();
-			strokeColor(kEdge);
-			strokeWidth(1);
-			stroke();
-
-			textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
-			fontSize(17);
-			fillColor(kInk);
-			text(minus.x + minus.w / 2, minus.y + minus.h / 2, "\xe2\x88\x92", nullptr);
-			text(plus.x + plus.w / 2, plus.y + plus.h / 2, "+", nullptr);
-			char value[8];
-			std::snprintf(value, sizeof(value), "%d", m_channel[m]);
-			fontSize(15);
-			text(box.x + box.w / 2, box.y + box.h / 2 + 1, value, nullptr);
-
-			if (m == kTR727)
-			{
-				textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
-				fontSize(12);
-				fillColor(kInkDim);
-				text(plus.x + plus.w + 16, box.y + box.h / 2, "no ROMs yet", nullptr);
-			}
-		}
-	}
-
-	void changeChannel(uint32_t m, int delta)
-	{
-		const int v = std::max(1, std::min(16, m_channel[m] + delta));
-		if (v == m_channel[m])
-			return;
-		m_channel[m] = v;
-		const uint32_t index = kParamChannel + m;
-		editParameter(index, true);
-		setParameterValue(index, float(v));
-		editParameter(index, false);
-		repaint();
-	}
-
-	void drawFooter()
-	{
-		const float y = kH - kFooterH / 2;
-		fontSize(12);
-		textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
-		fillColor(kInkDim);
-		text(kMargin, y, "Plays from MIDI, one channel per machine (SETTINGS). Needs your own ROM images (each machine's page).", nullptr);
-		textAlign(ALIGN_RIGHT | ALIGN_MIDDLE);
-		text(kW - kMargin, y, "No Roland data included. Not affiliated with Roland.", nullptr);
-	}
-
 	// ---- the window's size, as in Ostrich 220 ----------------------------------------------
 
 	// The panel's size lives in the plugin's state, so the host saves it with the session.
@@ -582,7 +1035,7 @@ private:
 	// is on its way (restoreSize).
 	void saveSizeWhenSettled()
 	{
-		const auto now = std::chrono::steady_clock::now();
+		const auto now = Clock::now();
 		const uint pw = getWindow().getWidth(), ph = getWindow().getHeight();
 		if (pw != m_sizeSeenW || ph != m_sizeSeenH)
 		{
@@ -612,7 +1065,7 @@ private:
 	// least size, as a reopened view gets.  Once, after DPF's first idle.
 	void fitHostFrame()
 	{
-		if (std::chrono::steady_clock::now() - m_created < std::chrono::milliseconds(200))
+		if (Clock::now() - m_created < std::chrono::milliseconds(200))
 			return;
 		m_frameFitted = true;
 		bool keep = false;
@@ -633,19 +1086,29 @@ private:
 
 	uint32_t m_tab = kTR505;
 	int m_channel[kNumMachines];
+	float m_value[kParamCount];
+	int m_look = kLookVintage;
+
+	// Knobs and pads.
+	int m_drag = -1;                            // the parameter being dragged, or -1
+	float m_dragY = 0, m_dragFrom = 0;
+	int m_lastKnob = -1;                        // for a second click: reset
+	Clock::time_point m_lastKnobAt {};
+	Clock::time_point m_flash[kNumMachines][kMaxColumns * 3] {};
 
 	// The ROM setup.
+	bool m_showRoms[kNumMachines] = {};         // the ROM page asked for, though complete
 	std::vector<std::string> m_romFile;         // per RomImage: where it came from, or empty
 	std::string m_romInstallDir, m_romDir, m_romMsg;
 	int m_browseMachine = -1;                   // the file browser is open for this machine
 	unsigned m_romSeq = 0, m_romAsked = 0;      // the request waiting for its answer, or 0
 	uint32_t m_romAskedMachine = 0, m_romMsgMachine = 0;
-	std::chrono::steady_clock::time_point m_romAskedAt {};
+	Clock::time_point m_romAskedAt {};
 
-	const std::chrono::steady_clock::time_point m_created = std::chrono::steady_clock::now();
+	const Clock::time_point m_created = Clock::now();
 	std::string m_sizeSaved;                    // "<w> <h>" unscaled, as in the plugin state
 	uint m_sizeSeenW = 0, m_sizeSeenH = 0;
-	std::chrono::steady_clock::time_point m_sizeSeenSince {};
+	Clock::time_point m_sizeSeenSince {};
 	bool m_frameFitted = false;                 // fitHostFrame
 
 	DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OstrichUI)

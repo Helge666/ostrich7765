@@ -274,7 +274,7 @@ void PcmMachine::renderBlock(int n, float* left, float* right)
         if (!v.playing)
             continue;
         const uint8_t* data = rom_ + v.offset;
-        const float g = v.gain / 128.0f / (1.0f - v.v0);
+        const float g = v.gain * v.level / 128.0f / (1.0f - v.v0);
         for (int i = 0; i < n; ++i) {
             const uint32_t k = uint32_t(v.pos);
             const float e = float(v.env) - v.v0;

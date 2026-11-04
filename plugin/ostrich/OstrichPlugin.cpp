@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -39,6 +40,8 @@ public:
 	{
 		for (uint32_t m = 0; m < kNumMachines; m ++)
 			m_channel[m] = kDefaultChannel[m];
+		for (float &l : m_level)
+			l = 1.0f;
 		m_roms.scan();
 		Engines e;
 		buildEngines(m_roms, e);
@@ -95,6 +98,36 @@ protected:
 			p.ranges.min = 1.0f;
 			p.ranges.max = 16.0f;
 		}
+		else if (index >= kParamMachineVolume && index < kParamMachineVolume + kMachineCount)
+		{
+			const uint32_t m = index - kParamMachineVolume;
+			p.hints = kParameterIsAutomatable;
+			p.name = String(kMachineNames[m]) + " volume";
+			p.symbol = String(kMachineSymbols[m]) + "_volume";
+			p.unit = "dB";
+			p.ranges.def = 0.0f;
+			p.ranges.min = -40.0f;
+			p.ranges.max = 6.0f;
+		}
+		else if (index >= kParamLevel && index < kParamCount)
+		{
+			uint32_t m = 0;
+			while (index >= kParamLevel + kLevelOffset[m + 1])
+				m ++;
+			const uint32_t c = index - kParamLevel - kLevelOffset[m];
+			// "BASS DRUM", "RIM SHOT / COWBELL": the column's title on one line.
+			std::string title = kColumns[m].columns[c].title, symbol;
+			std::replace(title.begin(), title.end(), '\n', ' ');
+			for (char ch : title)
+				symbol += std::isalnum(static_cast<unsigned char>(ch)) ? char(std::tolower(static_cast<unsigned char>(ch))) : '_';
+			p.hints = kParameterIsAutomatable;
+			p.name = String(kMachineNames[m]) + " " + String(title.c_str()) + " level";
+			p.shortName = String(title.c_str());
+			p.symbol = String(kMachineSymbols[m]) + "_" + String(symbol.c_str());
+			p.ranges.def = 1.0f;
+			p.ranges.min = 0.0f;
+			p.ranges.max = 1.0f;
+		}
 	}
 
 	float getParameterValue(uint32_t index) const override
@@ -103,6 +136,10 @@ protected:
 			return m_volumeDb;
 		if (index >= kParamChannel && index < kParamChannel + kMachineCount)
 			return float(m_channel[index - kParamChannel]);
+		if (index >= kParamMachineVolume && index < kParamMachineVolume + kMachineCount)
+			return m_machineVolumeDb[index - kParamMachineVolume];
+		if (index >= kParamLevel && index < kParamCount)
+			return m_level[index - kParamLevel];
 		return 0.0f;
 	}
 
@@ -112,6 +149,10 @@ protected:
 			m_volumeDb = value;
 		else if (index >= kParamChannel && index < kParamChannel + kMachineCount)
 			m_channel[index - kParamChannel] = std::clamp(int(std::lround(value)), 1, 16);
+		else if (index >= kParamMachineVolume && index < kParamMachineVolume + kMachineCount)
+			m_machineVolumeDb[index - kParamMachineVolume] = value;
+		else if (index >= kParamLevel && index < kParamCount)
+			m_level[index - kParamLevel] = std::clamp(value, 0.0f, 1.0f);
 	}
 
 	// ---- outputs -------------------------------------------------------------------------
@@ -264,6 +305,7 @@ protected:
 		std::unique_lock<std::mutex> engines(m_engineLock, std::try_to_lock);
 		if (!engines.owns_lock())
 			return;
+		applyLevels();
 
 		const float gain = std::pow(10.0f, m_volumeDb / 20.0f) * kTrim;
 		uint32_t pos = 0, ev = 0;
@@ -291,10 +333,11 @@ protected:
 				const float *in[2] = { s.inL.data(), s.inR.data() };
 				float *out[2] = { s.outL.data(), s.outR.data() };
 				s.resampler.process(in, nIn, out, n);
+				const float g = gain * std::pow(10.0f, m_machineVolumeDb[m] / 20.0f);
 				for (int i = 0; i < n; i ++)
 				{
-					outputs[0][pos + i] += s.outL[i] * gain;
-					outputs[1][pos + i] += s.outR[i] * gain;
+					outputs[0][pos + i] += s.outL[i] * g;
+					outputs[1][pos + i] += s.outR[i] * g;
 				}
 			}
 			pos = end;
@@ -320,6 +363,31 @@ private:
 	bool playing(uint32_t m) const
 	{
 		return m == kTR707 ? m_tr707 != nullptr : m < 2 && m_pcm[m] != nullptr;
+	}
+
+	// The columns' levels into the engines: the TR-707's go to its level sliders (one per
+	// mixer channel, the columns in channel order), the TR-505's and TR-626's to each sound
+	// of the column.
+	void applyLevels()
+	{
+		if (m_tr707)
+			for (uint32_t c = 0; c < kColumns[kTR707].count; c ++)
+				m_tr707->setLevel(int(c), m_level[kLevelOffset[kTR707] + c]);
+		for (uint32_t m : { uint32_t(kTR505), uint32_t(kTR626) })
+		{
+			if (!m_pcm[m])
+				continue;
+			for (uint32_t c = 0; c < kColumns[m].count; c ++)
+			{
+				const Column &col = kColumns[m].columns[c];
+				for (uint32_t k = 0; k < col.numPads; k ++)
+				{
+					const int sound = PcmMachine::noteToSound(m_pcm[m]->model(), col.pads[k].note);
+					if (sound >= 0)
+						m_pcm[m]->setLevel(sound, m_level[kLevelOffset[m] + c]);
+				}
+			}
+		}
 	}
 
 	// ---- ROMs ----------------------------------------------------------------------------
@@ -482,6 +550,8 @@ private:
 
 	float m_volumeDb = 0.0f;
 	int m_channel[kNumMachines];
+	float m_machineVolumeDb[kNumMachines] = {};
+	float m_level[kLevelOffset[kNumMachines]];
 
 	static constexpr const char *kRom707Chips[4] = { "IC34", "IC35", "IC19", "IC22" };
 

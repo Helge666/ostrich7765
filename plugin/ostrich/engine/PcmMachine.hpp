@@ -41,6 +41,8 @@ public:
 
     // Pitch of a sound as a factor of its rate (1 = the ROM's 25 kHz).
     void setPitch(int sound, double factor) { voices_[sound].step = factor * kSampleRate / kRate; }
+    // A level of our own per sound (the units have none): a gain, 1 = as measured.
+    void setLevel(int sound, float gain) { voices_[sound].level = gain; }
 
     // Render n internal samples into the stereo mix.
     void render(int n, float* left, float* right);
@@ -61,6 +63,7 @@ private:
         float busIn = 1.0f;
         double pos = 0.0, step = 0.25;
         float gain = 0.0f;
+        float level = 1.0f;               // setLevel
         bool playing = false;
     };
 

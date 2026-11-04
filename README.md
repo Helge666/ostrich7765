@@ -4,8 +4,9 @@ The sounds of four sample-based **Roland drum machines** of the 1980s as a VST3/
 and a standalone program: **TR-505, TR-626, TR-707 and TR-727**. A non-commercial fan
 project.
 
-> **Work in progress.** Nothing plays yet: the plugin builds, opens and shows its panel.
-> See [ROADMAP.md](ROADMAP.md).
+> **Work in progress.** The TR-505, TR-626 and TR-707 play, each with its panel; the mono
+> outputs, vintage timing and the machines' own controls are still to come. See
+> [ROADMAP.md](ROADMAP.md).
 
 Ostrich 7765 plays the machines' **original sound ROMs**, not recordings of them: a
 recording always carries the recording hardware with it. Around the ROM data it rebuilds
@@ -20,8 +21,10 @@ You need your own ROM images. **This repository contains no Roland data and neve
 - **Four machines in one plugin**, each on its own tab and its own MIDI channel (TR-505 10,
   TR-626 11, TR-707 12, TR-727 13; set on the SETTINGS page), all playing at the same time.
   The TR-727 is prepared but needs its sound ROMs, which have not been dumped yet.
-- **A panel per machine** with a level per sound and the machine's own controls where it
-  has them (such as the TR-626's pitch).
+- **A panel per machine**: a column per group of sounds with its LEVEL and its pads (each
+  with its MIDI note; click one to hear it), and the machine's VOLUME. Later also the
+  machine's own controls where it has them (such as the TR-626's pitch). Two looks,
+  VINTAGE (the units' beige) and DARK, chosen on the SETTINGS page.
 - **16 mono outputs** besides the stereo mix: a sound assigned to one of them leaves the
   mix.
 - **Vintage timing (optional):** notes on the grid on which the original CPU handled MIDI,

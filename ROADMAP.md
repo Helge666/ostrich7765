@@ -62,8 +62,12 @@ Decisions so far:
       folder is found by content and copied into the ROM folder, scrambled dumps put in
       order; the machine starts at once. Each machine's page lists its images and where
       they came from.
-- [ ] Panel in the style of `Research/gui_example.png`: a column per sound, level, pads
-      with their notes, the machine's own controls.
+- [x] Panel in the style of `Research/gui_example.png`: a column per group of sounds
+      with its LEVEL (an automatable parameter), pads with their notes that play when
+      clicked, the machine's VOLUME (dB). Two looks, VINTAGE (default) and DARK, kept for
+      all instances in `panel.txt` (Windows `%ProgramData%\Ostrich 7765`, Linux
+      `~/.config/Ostrich 7765`).
+- [ ] The machines' own controls on their pages (TR-626 pitch, TR-707 accent).
 - [ ] MIDI channel per machine, the mono-output assignment, session state.
 
 ## Phase 5: vintage timing

@@ -46,7 +46,7 @@ Decisions so far:
 
 ## Phase 2: sound generation
 
-- [ ] TR-707 first (best documented): playback at the original rates, 8-bit multiplying
+- [ ] TR-707 first (best documented; engine written and checked against the ROMs, not yet in the plugin): playback at the original rates, 8-bit multiplying
       DAC with accent, 6-bit DACs for crash and ride, the closed hi-hat's VCA, sounds that
       share a voice cutting each other, sample-and-hold steps, resampling to the host rate.
 - [ ] TR-505, TR-626 (with pitch), TR-727 (prepared; testable once ROMs exist).

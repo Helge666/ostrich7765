@@ -12,7 +12,7 @@ from:
 |---|---|---|
 | TR-505.md | TR-505 | sound ROM decoded; measured: note map, names, 25 kHz, velocity, timing |
 | TR-626.md | TR-626 | sound ROM decoded; measured: note map, names, 25 kHz, velocity, timing |
-| TR-707.md | TR-707 | sound ROMs split at their rates; firmware not at hand |
+| TR-707.md | TR-707 | sound ROMs split at their rates; engine (MAME's circuit model) checked against the ROMs; firmware not at hand |
 | TR-727.md | TR-727 | firmware: MIDI receive, note map, velocity to accent, 2.8 ms trigger grid; main-loop period open |
 
 Sources at hand (outside the repository, with the owner): the four sound-ROM sets of the

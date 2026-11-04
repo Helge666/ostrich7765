@@ -12,6 +12,7 @@ later ([LICENSE](LICENSE)). It contains, or is built from, the following.
 | DejaVu Sans | the panel's font, built into DGL | Bitstream Vera / DejaVu licence (`plugin/dpf/dgl/src/resources/LICENSE-DejaVuSans.ttf.txt`) | Bitstream, DejaVu authors |
 | RtAudio | the Windows standalone's audio, through DPF | MIT-style (RtAudio licence) | Gary P. Scavone |
 | RtMidi | built into the standalone through DPF | MIT-style (RtMidi licence) | Gary P. Scavone |
+| MAME's TR-707 sound board (`src/mame/roland/roland_tr707.cpp`), ported to C++ | `plugin/ostrich/engine/Tr707.cpp`, `Analog.hpp` | BSD-3-Clause (`plugin/ostrich/engine/LICENSE-MAME-BSD3.txt`) | AJR, m1macrophage |
 
 The release zips carry these licence texts in their folder `licenses`, next to the GPL 3.0
 (`LICENSE`); `.github/licenses.sh` puts them together.

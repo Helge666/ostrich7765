@@ -70,6 +70,7 @@ plugin/build/
 plugin/ostrich/bin-win/
 plugin/ostrich/build-win/
 plugin/tools/ostrich_clap_render
+plugin/tools/ostrich_engine_render
 __pycache__/
 *.pyc
 *.o

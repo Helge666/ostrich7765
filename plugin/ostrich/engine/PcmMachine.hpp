@@ -42,7 +42,7 @@ public:
     // Pitch of a sound as a factor of its rate (1 = the ROM's 25 kHz).
     void setPitch(int sound, double factor) { voices_[sound].step = factor * kSampleRate / kRate; }
     // The TR-626's pitch setting of a sound (-7..+7, its manual) as such a factor.
-    static double tr626PitchFactor(int step);
+    static double tr626PitchFactor(int sound, int step);
     // A level of our own per sound (the units have none): a gain, 1 = as measured.
     void setLevel(int sound, float gain) { voices_[sound].level = gain; }
 

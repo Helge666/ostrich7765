@@ -320,12 +320,20 @@ void PcmMachine::renderBlock(int n, float* left, float* right)
     }
 }
 
-// The TR-626's pitch steps. assumed: a semitone per step; to be measured on the unit.
-constexpr double kTr626PitchStep = 1.0594630943592953;
+// The TR-626's pitch (analysis/TR-626.md, "Pitch"). measured: a sound's rate is a clock
+// of 1.6 MHz over a count, 64 at pitch 0 (25 kHz); each step down adds 4 to the count,
+// each step up takes away a number that depends on the sound: 3 for low tom 1, 2 for the
+// cowbell. assumed: 3 for the other sounds, until they are measured.
+constexpr int kTr626PitchUp[30] = {
+    3, 3, 3, 3, 3, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+};
 
-double PcmMachine::tr626PitchFactor(int step)
+double PcmMachine::tr626PitchFactor(int sound, int step)
 {
-    return std::pow(kTr626PitchStep, std::clamp(step, -7, 7));
+    step = std::clamp(step, -7, 7);
+    const int up = sound >= 0 && sound < 30 ? kTr626PitchUp[sound] : 3;
+    return 64.0 / double(64 + (step < 0 ? -4 * step : -up * step));
 }
 
 int PcmMachine::noteToSound(Model model, int note)

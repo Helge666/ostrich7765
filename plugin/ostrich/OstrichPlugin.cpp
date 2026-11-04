@@ -438,7 +438,7 @@ private:
 			{
 				const int sound = PcmMachine::noteToSound(PcmMachine::kTr626, pitchPad(i).note);
 				if (sound >= 0)
-					m_pcm[kTR626]->setPitch(sound, PcmMachine::tr626PitchFactor(m_pitch[i]));
+					m_pcm[kTR626]->setPitch(sound, PcmMachine::tr626PitchFactor(sound, m_pitch[i]));
 			}
 		if (m_tr707)
 			for (uint32_t c = 0; c < kColumns[kTR707].count; c ++)

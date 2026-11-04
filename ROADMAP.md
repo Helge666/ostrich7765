@@ -68,7 +68,7 @@ Decisions so far:
       all instances in `panel.txt` (Windows `%ProgramData%\Ostrich 7765`, Linux
       `~/.config/Ostrich 7765`).
 - [x] The machines' own controls on their pages: the TR-626's PITCH per sound (-7..+7,
-      its manual; the step size still to be measured). The TR-707 gets no accent knob:
+      its manual; measured: a 1.6 MHz clock over a count, the upward step per sound, 28 of 30 still to measure). The TR-707 gets no accent knob:
       over MIDI its velocity sets the accent (TR-727 firmware; TR-707.md).
 - [ ] MIDI channel per machine, the mono-output assignment, session state.
 

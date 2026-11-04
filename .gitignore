@@ -1,0 +1,81 @@
+# ---------------------------------------------------------------------------------------
+# COPYRIGHTED MATERIAL -- never commit, never push.
+#
+# Roland's sound ROMs, firmware and manuals belong to Roland. This repository only says
+# WHERE a user must put their own dumps (roms/README.md); it never carries them, not even
+# for a moment in the history.
+#
+# If you really need to add a binary that matches one of these patterns and is NOT
+# copyrighted (a test fixture you generated yourself), use `git add -f` and say why in
+# the commit message.
+# ---------------------------------------------------------------------------------------
+
+# Sound ROMs and firmware, in every naming scheme seen so far
+#   IC19_CRASH_CYMBAL.bin, IC34_TR707_SNDROM.bin, TR-505_RawRomDump.BIN,
+#   TR-626_Sound_Rom.bin, osv_1.0_hd4827128.ic13, ___TR-727_OSv_1.0_HN4827128.BIN
+*.bin
+*.BIN
+*.Bin
+*.rom
+*.ROM
+*.ic[0-9]*
+*.IC[0-9]*
+*.eprom
+*.hex
+*.mot
+*.s19
+
+# ROM sets as zips (MAME and others)
+*.zip
+*.ZIP
+*.7z
+*.rar
+*.chd
+
+# The roms/ folder holds only its README
+roms/*
+!roms/README.md
+
+# Decoded sample data and recordings of the real units (derived from the ROMs)
+*.wav
+*.WAV
+*.flac
+*.aif
+*.aiff
+*.mp3
+*.ogg
+*.raw
+*.pcm
+
+# Recordings and measurements of the hardware stay outside the repository
+recordings/
+captures/
+
+# Roland manuals, service notes and schematics
+reference/*
+!reference/README.md
+*.pdf
+*.PDF
+
+# Photos of real hardware (copyright of whoever took them)
+*.jpg
+*.jpeg
+*.JPG
+
+# ---------------------------------------------------------------------------------------
+# Build output and local clutter
+# ---------------------------------------------------------------------------------------
+plugin/bin/
+plugin/build/
+plugin/ostrich/bin-win/
+plugin/ostrich/build-win/
+plugin/tools/ostrich_clap_render
+__pycache__/
+*.pyc
+*.o
+*.d
+.DS_Store
+.claude/
+.claude.json
+*.pem
+error.log

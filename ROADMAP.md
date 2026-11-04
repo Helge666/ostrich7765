@@ -1,0 +1,70 @@
+# Roadmap
+
+The approach: the machines' sound ROMs, played the way the machines play them. No firmware
+on an emulated CPU and no sequencer; MIDI triggers the sounds. Everything the machines do
+with their data is worked out from the ROMs, the TR-727 firmware, documentation and
+measurements of a real TR-505 and TR-626, and recorded in [analysis/](analysis/README-ANALYSIS.md).
+
+Decisions so far:
+
+- One plugin, four machines playing at the same time, each on a MIDI channel of its own;
+  the panel's tabs (TR-505, TR-626, TR-707, TR-727, Settings) only choose the view.
+- Outputs: the stereo mix and 16 mono outputs, a pool shared by all machines. Each sound
+  can be assigned to one of them and then leaves the mix.
+- The note mapping is still open: an octave offset per machine overlaps, since the
+  original maps span three to four octaves. To be decided once the original maps are
+  verified.
+- Vintage timing: the timing grid of the original CPU's MIDI handling, plus CPU/MIDI
+  jitter, optional (as in VPROM 3.0).
+- Version in `plugin/ostrich/Version.hpp`; a `v*` tag publishes a release, `preview-*` is
+  the dry run.
+
+## Phase 0: the scaffold
+
+- [x] Repository, licence (GPL-3.0-or-later), AGENTS.md, `.gitignore` against ROM formats.
+- [x] DPF (our fork, `logan-1`) as a submodule.
+- [x] An empty plugin that builds: VST3, CLAP, standalone; the stereo mix and 16 mono
+      outputs (off until the host switches them on); the panel with its tabs; the version.
+- [x] CI: Linux and Windows on GitHub, smoke test, zips; `v*` publishes a release.
+- [ ] GitHub repository with topics; first push together with the owner.
+
+## Phase 1: ROM analysis
+
+- [ ] Per machine in `analysis/`: ROM layout, sample boundaries, playback rates, decoding
+      (the TR-505's scrambled dump), known dumps and their SHA-1.
+- [ ] TR-727 firmware (REA): MIDI handling, accent, sample tables, timing. Its hardware is
+      the TR-707's; what carries over is marked as derived.
+- [ ] Measurement plan for the real TR-505 and TR-626: MIDI test files and capture
+      scripts; the owner connects one machine at a time and names the MIDI port and audio
+      input, then the recordings run without him.
+- [ ] The original MIDI note maps, verified; decide the mapping.
+
+## Phase 2: sound generation
+
+- [ ] TR-707 first (best documented): playback at the original rates, 8-bit multiplying
+      DAC with accent, 6-bit DACs for crash and ride, the closed hi-hat's VCA, sounds that
+      share a voice cutting each other, sample-and-hold steps, resampling to the host rate.
+- [ ] TR-505, TR-626 (with pitch), TR-727 (prepared; testable once ROMs exist).
+
+## Phase 3: the analogue stages
+
+- [ ] Schematics and service notes; filters and output stages per machine, fitted to the
+      recordings, switchable as in Ostrich 220.
+
+## Phase 4: the plugin
+
+- [ ] ROM setup per tab (as in Ostrich 220): choose a file, the rest of its folder is
+      found by content, scrambled dumps put in order.
+- [ ] Panel in the style of `Research/gui_example.png`: a column per sound, level, pads
+      with their notes, the machine's own controls.
+- [ ] MIDI channel per machine, the mono-output assignment, session state.
+
+## Phase 5: vintage timing
+
+- [ ] VPROM 3.0's behaviour, researched; grid and jitter per machine from the firmware or
+      from measurements; switchable.
+
+## Phase 6: release 0.1.0
+
+- [ ] Test in Cubase; README with screenshot; Windows and Linux zips.
+- [ ] TR-727 sound ROMs once available; macOS later.

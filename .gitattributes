@@ -1,0 +1,5 @@
+# Keep LF everywhere, also in Windows checkouts: the scripts and the build run on Linux
+# (the build host and CI).
+* text=auto eol=lf
+*.png binary
+*.ico binary

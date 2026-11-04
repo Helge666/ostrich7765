@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -109,7 +110,7 @@ protected:
 			p.ranges.min = -40.0f;
 			p.ranges.max = 6.0f;
 		}
-		else if (index >= kParamLevel && index < kParamCount)
+		else if (index >= kParamLevel && index < kParamTiming)
 		{
 			uint32_t m = 0;
 			while (index >= kParamLevel + kLevelOffset[m + 1])
@@ -128,6 +129,42 @@ protected:
 			p.ranges.min = 0.0f;
 			p.ranges.max = 1.0f;
 		}
+		else if (index >= kParamTiming && index < kParamTiming + kMachineCount)
+		{
+			const uint32_t m = index - kParamTiming;
+			p.hints = kParameterIsBoolean | kParameterIsInteger;
+			p.name = String(kMachineNames[m]) + " vintage timing";
+			p.shortName = "Timing";
+			p.symbol = String(kMachineSymbols[m]) + "_timing";
+			p.ranges.def = 0.0f;
+			p.ranges.min = 0.0f;
+			p.ranges.max = 1.0f;
+		}
+		else if (index >= kParamPitch && index < kParamCount)
+		{
+			const Pad &pad = pitchPad(index - kParamPitch);
+			std::string symbol;
+			for (char ch : std::string(pad.label))
+				symbol += char(std::tolower(static_cast<unsigned char>(ch)));
+			p.hints = kParameterIsAutomatable | kParameterIsInteger;
+			p.name = String("TR-626 ") + pad.label + " pitch";
+			p.shortName = String(pad.label) + " pitch";
+			p.symbol = String("tr626_") + symbol.c_str() + "_pitch";
+			p.ranges.def = 0.0f;
+			p.ranges.min = -7.0f;
+			p.ranges.max = 7.0f;
+		}
+	}
+
+	// The TR-626 pad of pitch parameter i (kColumns626 order).
+	static const Pad &pitchPad(uint32_t i)
+	{
+		for (uint32_t c = 0;; c ++)
+		{
+			if (i < kColumns626[c].numPads)
+				return kColumns626[c].pads[i];
+			i -= kColumns626[c].numPads;
+		}
 	}
 
 	float getParameterValue(uint32_t index) const override
@@ -138,8 +175,12 @@ protected:
 			return float(m_channel[index - kParamChannel]);
 		if (index >= kParamMachineVolume && index < kParamMachineVolume + kMachineCount)
 			return m_machineVolumeDb[index - kParamMachineVolume];
-		if (index >= kParamLevel && index < kParamCount)
+		if (index >= kParamLevel && index < kParamTiming)
 			return m_level[index - kParamLevel];
+		if (index >= kParamTiming && index < kParamTiming + kMachineCount)
+			return m_timing[index - kParamTiming] ? 1.0f : 0.0f;
+		if (index >= kParamPitch && index < kParamCount)
+			return float(m_pitch[index - kParamPitch]);
 		return 0.0f;
 	}
 
@@ -151,8 +192,12 @@ protected:
 			m_channel[index - kParamChannel] = std::clamp(int(std::lround(value)), 1, 16);
 		else if (index >= kParamMachineVolume && index < kParamMachineVolume + kMachineCount)
 			m_machineVolumeDb[index - kParamMachineVolume] = value;
-		else if (index >= kParamLevel && index < kParamCount)
+		else if (index >= kParamLevel && index < kParamTiming)
 			m_level[index - kParamLevel] = std::clamp(value, 0.0f, 1.0f);
+		else if (index >= kParamTiming && index < kParamTiming + kMachineCount)
+			m_timing[index - kParamTiming] = value > 0.5f;
+		else if (index >= kParamPitch && index < kParamCount)
+			m_pitch[index - kParamPitch] = std::clamp(int(std::lround(value)), -7, 7);
 	}
 
 	// ---- outputs -------------------------------------------------------------------------
@@ -282,6 +327,10 @@ protected:
 		for (auto &p : m_pcm)
 			if (p)
 				p->reset();
+		m_numPending = 0;
+		for (uint32_t m = 0; m < kNumMachines; m ++)
+			m_lineFree[m] = m_lastFire[m] = 0.0;
+		m_clock = 0;
 	}
 
 	void run(const float **, float **outputs, uint32_t frames, const MidiEvent *events,
@@ -308,15 +357,30 @@ protected:
 		applyLevels();
 
 		const float gain = std::pow(10.0f, m_volumeDb / 20.0f) * kTrim;
-		uint32_t pos = 0, ev = 0;
+		// The block's notes into the queue, each with the frame it starts at: its own, or
+		// with vintage timing as late as the unit would play it.
+		for (uint32_t ev = 0; ev < eventCount; ev ++)
+			midi(events[ev]);
+		uint32_t pos = 0;
 		while (pos < frames)
 		{
 			// Notes start at the segment that begins at their frame.
-			for (; ev < eventCount && events[ev].frame <= pos; ev ++)
-				midi(events[ev]);
-			uint32_t end = std::min(frames, pos + kMaxSegment);
-			if (ev < eventCount)
-				end = std::min(end, std::max(events[ev].frame, pos + 1));
+			const uint64_t now = m_clock + pos;
+			uint64_t next = m_clock + std::min(frames, pos + kMaxSegment);
+			uint32_t kept = 0;
+			for (uint32_t i = 0; i < m_numPending; i ++)
+			{
+				const Pending p = m_pending[i];
+				if (p.at <= now)
+					play(p.machine, p.note, p.velocity);
+				else
+				{
+					next = std::min(next, p.at);
+					m_pending[kept ++] = p;
+				}
+			}
+			m_numPending = kept;
+			const uint32_t end = uint32_t(next - m_clock);
 			const int n = int(end - pos);
 			for (uint32_t m = 0; m < kNumMachines; m ++)
 			{
@@ -342,8 +406,7 @@ protected:
 			}
 			pos = end;
 		}
-		for (; ev < eventCount; ev ++)
-			midi(events[ev]);
+		m_clock += frames;
 	}
 
 private:
@@ -370,6 +433,13 @@ private:
 	// of the column.
 	void applyLevels()
 	{
+		if (m_pcm[kTR626])
+			for (uint32_t i = 0; i < kParamCount - kParamPitch; i ++)
+			{
+				const int sound = PcmMachine::noteToSound(PcmMachine::kTr626, pitchPad(i).note);
+				if (sound >= 0)
+					m_pcm[kTR626]->setPitch(sound, PcmMachine::tr626PitchFactor(m_pitch[i]));
+			}
 		if (m_tr707)
 			for (uint32_t c = 0; c < kColumns[kTR707].count; c ++)
 				m_tr707->setLevel(int(c), m_level[kLevelOffset[kTR707] + c]);
@@ -531,27 +601,104 @@ private:
 		publishRomSet(machine, seq, msg);
 	}
 
+	// A MIDI message of this block: a note on goes into the queue for each machine on its
+	// channel, at its frame or, with vintage timing, when the unit would play it.
 	void midi(const MidiEvent &e)
 	{
-		if (e.size < 3 || e.size > MidiEvent::kDataSize)
+		if (e.size < 2 || e.size > MidiEvent::kDataSize || e.data[0] < 0x80 || e.data[0] >= 0xf0)
 			return;
 		const uint8_t status = e.data[0] & 0xf0, channel = (e.data[0] & 0x0f) + 1;
-		const uint8_t note = e.data[1] & 0x7f, velocity = e.data[2] & 0x7f;
-		// Note off and velocity 0 do nothing (TR-727 firmware; on the TR-505 a note off has
-		// no audible effect, measured): the units play one shots.
-		if (status != 0x90 || velocity == 0)
-			return;
-		if (m_tr707 && channel == m_channel[kTR707])
+		const uint8_t note = e.data[1] & 0x7f, velocity = e.size >= 3 ? e.data[2] & 0x7f : 0;
+		// Note off and velocity 0 play nothing (TR-727 firmware; on the TR-505 a note off has
+		// no audible effect, measured): the units play one shots. With vintage timing they
+		// still take their time on the MIDI line.
+		const bool on = status == 0x90 && velocity != 0;
+		for (uint32_t m = 0; m < kNumMachines; m ++)
+		{
+			if (!playing(m) || channel != m_channel[m])
+				continue;
+			double at = double(m_clock + e.frame);
+			if (m_timing[m])
+				at = vintage(m, at, on, e.size);
+			if (on && m_numPending < kMaxPending)
+				m_pending[m_numPending ++] = { uint64_t(std::ceil(at)), uint8_t(m), note, velocity };
+		}
+	}
+
+	void play(uint32_t m, uint8_t note, uint8_t velocity)
+	{
+		if (m == kTR707 && m_tr707)
 			m_tr707->trigger(Tr707::noteToSound(false, note), velocity);
-		for (uint32_t m : { uint32_t(kTR505), uint32_t(kTR626) })
-			if (m_pcm[m] && channel == m_channel[m])
-				m_pcm[m]->trigger(PcmMachine::noteToSound(m_pcm[m]->model(), note), velocity);
+		else if (m < 2 && m_pcm[m])
+			m_pcm[m]->trigger(PcmMachine::noteToSound(m_pcm[m]->model(), note), velocity);
+	}
+
+	// Vintage timing (analysis/TIMING.md): the frame at which the unit plays a message sent
+	// at frame t.  First the MIDI line, 31250 baud, ten bits a byte: the message is there
+	// once its last byte is, and messages sent at once follow each other (running status:
+	// one byte less each after the first).  Then the unit: the TR-707 / TR-727 parse MIDI
+	// every 2.8 ms and fire the voices 0.7 ms later (TR-727 firmware); the TR-505 and
+	// TR-626 have no grid, but a spread measured on the owner's units.
+	double vintage(uint32_t m, double t, bool noteOn, uint32_t size)
+	{
+		const double rate = getSampleRate();
+		const double byte = rate * 10.0 / 31250.0;
+		const bool idle = t >= m_lineFree[m];
+		const double avail = std::max(t, m_lineFree[m]) + double(idle ? size : size - 1) * byte;
+		m_lineFree[m] = avail;
+		if (!noteOn)
+			return avail;
+		double fire;
+		if (m == kTR707 || m == kTR727)
+		{
+			const double period = rate * 0.0028, phase = m_gridPhase * period;
+			fire = phase + std::ceil((avail - phase) / period) * period + rate * 0.0007;
+		}
+		else
+		{
+			// Measured: 300 bass drum notes spread over 1.7 ms (TR-505, standard deviation
+			// 0.36 ms) and 1.55 ms (TR-626, 0.27 ms), the PC's USB MIDI included.
+			const double sd = rate * (m == kTR505 ? 0.36e-3 : 0.27e-3);
+			fire = avail + sd * (2.4 + std::clamp(gauss(), -2.4, 2.4));
+		}
+		fire = std::max(fire, m_lastFire[m]);       // never out of order
+		m_lastFire[m] = fire;
+		return fire;
+	}
+
+	// About normal, mean 0, deviation 1: the sum of four uniform numbers.
+	double gauss()
+	{
+		double sum = 0.0;
+		for (int i = 0; i < 4; i ++)
+		{
+			m_rng ^= m_rng << 13;
+			m_rng ^= m_rng >> 17;
+			m_rng ^= m_rng << 5;
+			sum += double(m_rng) / 4294967296.0;
+		}
+		return (sum - 2.0) / std::sqrt(4.0 / 12.0);
 	}
 
 	float m_volumeDb = 0.0f;
 	int m_channel[kNumMachines];
 	float m_machineVolumeDb[kNumMachines] = {};
 	float m_level[kLevelOffset[kNumMachines]];
+	bool m_timing[kNumMachines] = {};
+	int m_pitch[kParamCount - kParamPitch] = {};
+
+	// Notes waiting for their frame (vintage timing, or later in the block).
+	struct Pending { uint64_t at; uint8_t machine, note, velocity; };
+	static constexpr uint32_t kMaxPending = 512;
+	Pending m_pending[kMaxPending];
+	uint32_t m_numPending = 0;
+	uint64_t m_clock = 0;                          // host frames since activate()
+	double m_lineFree[kNumMachines] = {};          // vintage timing: the MIDI line free again
+	double m_lastFire[kNumMachines] = {};
+	uint32_t m_rng = 0x9e3779b9u;
+	// The TR-707's 2.8 ms grid runs free: where it stands, a fraction of its period, is up to
+	// when the unit was switched on.
+	const double m_gridPhase = double(std::hash<const void *>{}(this) % 1000) / 1000.0;
 
 	static constexpr const char *kRom707Chips[4] = { "IC34", "IC35", "IC19", "IC22" };
 

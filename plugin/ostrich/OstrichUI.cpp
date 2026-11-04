@@ -132,6 +132,7 @@ void saveLook(int look)
 
 constexpr float kColGap = 6, kColTop = kBodyY + 36, kColBottom = kBodyY + 410;
 constexpr float kKnobR = 22, kKnobDy = 84;
+constexpr float kPitchR = 16, kPitchDy = 192;     // the TR-626's PITCH, below the LEVEL
 constexpr float kPadW = 34, kPadH = 40, kPadGap = 5;
 
 // Column c of a machine's n columns; c == n is its VOLUME.
@@ -203,7 +204,8 @@ constexpr float kChanBtn = 28, kChanBoxW = 56;
 inline Rect chanMinus(uint32_t m) { return { kChanX + 150, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
 inline Rect chanBox(uint32_t m) { return { kChanX + 150 + kChanBtn + 6, kChanY + m * kChanRowH, kChanBoxW, kChanBtn }; }
 inline Rect chanPlus(uint32_t m) { return { kChanX + 150 + kChanBtn + 12 + kChanBoxW, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
-const float kLookY = kChanY + 4 * kChanRowH + 52;
+inline Rect timingButton(uint32_t m) { return { kChanX + 430, kChanY + m * kChanRowH, 150, kChanBtn }; }
+const float kLookY = kChanY + 4 * kChanRowH + 78;
 inline Rect lookButton(int look) { return { kChanX + 150 + float(look) * 118, kLookY, 110, 28 }; }
 
 } // anonymous namespace
@@ -223,7 +225,9 @@ public:
 		for (float &v : m_value)
 			v = 1.0f;
 		for (uint32_t m = 0; m < kNumMachines; m ++)
-			m_value[kParamMachineVolume + m] = 0.0f;
+			m_value[kParamMachineVolume + m] = m_value[kParamTiming + m] = 0.0f;
+		for (uint32_t p = kParamPitch; p < kParamCount; p ++)
+			m_value[p] = 0.0f;
 		m_value[kParamVolume] = 0.0f;
 		m_romFile.resize(kNumRomImagesUi);
 		m_look = loadLook();
@@ -321,6 +325,8 @@ protected:
 					return changeChannel(m, -1), true;
 				if (chanPlus(m).contains(x, y))
 					return changeChannel(m, 1), true;
+				if (m != kTR727 && timingButton(m).contains(x, y))
+					return setValue(kParamTiming + m, m_value[kParamTiming + m] > 0.5f ? 0.0f : 1.0f, true), true;
 			}
 			for (int look : { kLookVintage, kLookDark })
 				if (lookButton(look).contains(x, y))
@@ -376,6 +382,7 @@ protected:
 				{
 					sendNote(uint8_t(m_channel[m] - 1), col.pads[k].note, (ev.mod & kModifierShift) ? 64 : 127);
 					m_flash[m][c * 3 + k] = Clock::now();
+					m_selected[m][c] = uint8_t(k);      // the TR-626's PITCH sets this one
 					repaint();
 					return true;
 				}
@@ -459,10 +466,12 @@ private:
 	{
 		return p == kParamVolume || (p >= kParamMachineVolume && p < kParamMachineVolume + kMachineCount);
 	}
-	static float rangeMin(uint32_t p) { return isVolume(p) ? -40.0f : 0.0f; }
-	static float rangeMax(uint32_t p) { return isVolume(p) ? 6.0f : 1.0f; }
-	static float defaultOf(uint32_t p) { return isVolume(p) ? 0.0f : 1.0f; }
-	static float step(uint32_t p) { return isVolume(p) ? 1.0f : 0.02f; }
+	static bool isPitch(uint32_t p) { return p >= kParamPitch && p < kParamCount; }
+	static bool isSwitch(uint32_t p) { return p >= kParamTiming && p < kParamTiming + kMachineCount; }
+	static float rangeMin(uint32_t p) { return isVolume(p) ? -40.0f : isPitch(p) ? -7.0f : 0.0f; }
+	static float rangeMax(uint32_t p) { return isVolume(p) ? 6.0f : isPitch(p) ? 7.0f : 1.0f; }
+	static float defaultOf(uint32_t p) { return isVolume(p) || isPitch(p) || isSwitch(p) ? 0.0f : 1.0f; }
+	static float step(uint32_t p) { return isVolume(p) || isPitch(p) ? 1.0f : 0.02f; }
 
 	// The knob's position, 0..1.
 	float position(uint32_t p) const
@@ -475,6 +484,8 @@ private:
 		v = std::max(rangeMin(p), std::min(rangeMax(p), v));
 		if (isVolume(p))
 			v = std::round(v * 2.0f) / 2.0f;     // half dB steps
+		else if (isPitch(p) || isSwitch(p))
+			v = std::round(v);
 		if (v == m_value[p])
 			return;
 		m_value[p] = v;
@@ -498,6 +509,9 @@ private:
 			const float dx = x - knobX(r), dy = y - knobY(r);
 			if (dx * dx + dy * dy <= (kKnobR + 8) * (kKnobR + 8))
 				return int(c == n ? kParamMachineVolume + m : levelParam(m, c));
+			const float py = y - (r.y + kPitchDy);
+			if (m == kTR626 && c < n && dx * dx + py * py <= (kPitchR + 8) * (kPitchR + 8))
+				return int(pitchParam(c, m_selected[m][c]));
 		}
 		return -1;
 	}
@@ -697,8 +711,23 @@ private:
 			if (volume)
 				continue;
 
-			// The pads: label and note; the lamp above lights when clicked.
+			// The TR-626's PITCH, of the column's sound clicked last.
 			const Column &col = cs.columns[c];
+			const uint32_t sel = m_selected[m][c];
+			if (m == kTR626)
+			{
+				const uint32_t pp = pitchParam(c, sel);
+				const float py = r.y + kPitchDy;
+				drawKnob(knobX(r), py, position(pp), colour, pp == uint32_t(m_drag), kPitchR, true);
+				const int v = int(std::lround(m_value[pp]));
+				char pitch[32];
+				std::snprintf(pitch, sizeof(pitch), v ? "%s PITCH %+d" : "%s PITCH 0", col.pads[sel].label, v);
+				fontSize(10.5f);
+				fillColor(pp == uint32_t(m_drag) ? th.ink : th.inkDim);
+				text(knobX(r), py + kPitchR + 19, pitch, nullptr);
+			}
+
+			// The pads: label and note; the lamp above lights when clicked.
 			for (uint32_t k = 0; k < col.numPads; k ++)
 			{
 				const Rect pr = padRect(r, col.numPads, k);
@@ -711,8 +740,9 @@ private:
 				roundedRect(pr.x, pr.y, pr.w, pr.h, 3);
 				fillColor(lit ? Color(th.zone[z], Color(255, 255, 255), 0.35f) : th.zone[z]);
 				fill();
-				strokeColor(Color(th.zone[z], Color(0, 0, 0), 0.25f));
-				strokeWidth(1);
+				const bool picked = m == kTR626 && k == sel;
+				strokeColor(picked ? th.ink : Color(th.zone[z], Color(0, 0, 0), 0.25f));
+				strokeWidth(picked ? 2 : 1);
 				stroke();
 				fillColor(th.padInk[z]);
 				textAlign(ALIGN_CENTER | ALIGN_BASELINE);
@@ -729,35 +759,38 @@ private:
 
 	// A knob of 270 degrees: the track, the value's arc in the column's colour, the cap with
 	// its mark.
-	void drawKnob(float cx, float cy, float pos, const Color &colour, bool active)
+	// A bipolar knob's arc starts at the top, at its centre value.
+	void drawKnob(float cx, float cy, float pos, const Color &colour, bool active,
+	              float radius = kKnobR, bool bipolar = false)
 	{
 		const Theme &th = theme();
-		const float a0 = float(M_PI) * 0.75f, a1 = float(M_PI) * 2.25f;
+		const float a0 = float(M_PI) * 0.75f, a1 = float(M_PI) * 2.25f, am = float(M_PI) * 1.5f;
 		const float a = a0 + (a1 - a0) * std::max(0.0f, std::min(1.0f, pos));
+		const float from = bipolar ? std::min(a, am) : a0, to = bipolar ? std::max(a, am) : a;
 		beginPath();
-		arc(cx, cy, kKnobR + 5, a0, a1, CW);
+		arc(cx, cy, radius + 5, a0, a1, CW);
 		strokeColor(th.knobTrack);
 		strokeWidth(3);
 		stroke();
-		if (pos > 0.001f)
+		if (to - from > 0.01f)
 		{
 			beginPath();
-			arc(cx, cy, kKnobR + 5, a0, a, CW);
+			arc(cx, cy, radius + 5, from, to, CW);
 			strokeColor(colour);
 			strokeWidth(3);
 			stroke();
 		}
 		beginPath();
-		circle(cx, cy, kKnobR);
-		fillPaint(radialGradient(cx - 6, cy - 8, 2, kKnobR + 4,
+		circle(cx, cy, radius);
+		fillPaint(radialGradient(cx - radius * 0.27f, cy - radius * 0.36f, 2, radius + 4,
 		                         Color(th.knob, Color(255, 255, 255), 0.18f), th.knob));
 		fill();
 		strokeColor(active ? colour : Color(th.knob, Color(0, 0, 0), 0.4f));
 		strokeWidth(active ? 2 : 1);
 		stroke();
 		beginPath();
-		moveTo(cx + std::cos(a) * kKnobR * 0.3f, cy + std::sin(a) * kKnobR * 0.3f);
-		lineTo(cx + std::cos(a) * kKnobR * 0.88f, cy + std::sin(a) * kKnobR * 0.88f);
+		moveTo(cx + std::cos(a) * radius * 0.3f, cy + std::sin(a) * radius * 0.3f);
+		lineTo(cx + std::cos(a) * radius * 0.88f, cy + std::sin(a) * radius * 0.88f);
 		strokeColor(th.knobMark);
 		strokeWidth(2.5f);
 		lineCap(ROUND);
@@ -861,8 +894,6 @@ private:
 		fontSize(13);
 		fillColor(th.inkDim);
 		text(rx, kBody.y + 110, "The assignment of the sounds to OUT 1-16.", nullptr);
-		text(rx, kBody.y + 132, "Vintage timing: the original CPU's MIDI grid and jitter.", nullptr);
-		text(rx, kBody.y + 154, "The machines' own controls (TR-707 accent, TR-626 tuning).", nullptr);
 	}
 
 	void drawChannels()
@@ -919,7 +950,14 @@ private:
 				fillColor(th.inkDim);
 				text(plus.x + plus.w + 16, box.y + box.h / 2, "no ROMs yet", nullptr);
 			}
+			else
+				drawButton(timingButton(m), "VINTAGE TIMING", m_value[kParamTiming + m] > 0.5f);
 		}
+		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
+		fontSize(12);
+		fillColor(th.inkDim);
+		text(kChanX, kChanY + 4 * kChanRowH + 8, "Vintage timing: each note as late and as uneven as on the unit: the MIDI line, the TR-707's", nullptr);
+		text(kChanX, kChanY + 4 * kChanRowH + 24, "2.8 ms grid, the spread measured on the TR-505 and TR-626 (1.5-1.7 ms).", nullptr);
 	}
 
 	void changeChannel(uint32_t m, int delta)
@@ -1099,6 +1137,7 @@ private:
 	int m_lastKnob = -1;                        // for a second click: reset
 	Clock::time_point m_lastKnobAt {};
 	Clock::time_point m_flash[kNumMachines][kMaxColumns * 3] {};
+	uint8_t m_selected[kNumMachines][kMaxColumns] {};   // per column: the pad clicked last
 
 	// The ROM setup.
 	bool m_showRoms[kNumMachines] = {};         // the ROM page asked for, though complete

@@ -67,13 +67,16 @@ Decisions so far:
       clicked, the machine's VOLUME (dB). Two looks, VINTAGE (default) and DARK, kept for
       all instances in `panel.txt` (Windows `%ProgramData%\Ostrich 7765`, Linux
       `~/.config/Ostrich 7765`).
-- [ ] The machines' own controls on their pages (TR-626 pitch, TR-707 accent).
+- [x] The machines' own controls on their pages: the TR-626's PITCH per sound (-7..+7,
+      its manual; the step size still to be measured). The TR-707 gets no accent knob:
+      over MIDI its velocity sets the accent (TR-727 firmware; TR-707.md).
 - [ ] MIDI channel per machine, the mono-output assignment, session state.
 
 ## Phase 5: vintage timing
 
-- [ ] VPROM 3.0's behaviour, researched; grid and jitter per machine from the firmware or
-      from measurements; switchable.
+- [x] Grid and spread per machine from the firmware and the measurements, plus the MIDI
+      line; switchable per machine (analysis/TIMING.md). VPROM 3.0 itself was not looked
+      into. Open: the TR-707/727 main loop's period.
 
 ## Phase 6: release 0.1.0
 

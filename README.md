@@ -4,15 +4,20 @@ The sounds of four sample-based **Roland drum machines** of the 1980s as a VST3/
 and a standalone program: **TR-505, TR-626, TR-707 and TR-727**. A non-commercial fan
 project.
 
-> **Work in progress.** The TR-505, TR-626 and TR-707 play, each with its panel; the mono
-> outputs, vintage timing and the machines' own controls are still to come. See
+> **Work in progress.** The TR-505, TR-626 and TR-707 play, each with its panel, the
+> TR-626's pitch and vintage timing; the mono outputs are still to come. See
 > [ROADMAP.md](ROADMAP.md).
 
-Ostrich 7765 plays the machines' **original sound ROMs**, not recordings of them: a
-recording always carries the recording hardware with it. Around the ROM data it rebuilds
-what each machine does with it: sample rates, pitch, accent, envelopes, which sounds share
-a voice, and the analogue filters and output stages. It does not run the machines'
-firmware, and it has no sequencer: the sounds are played by MIDI.
+**It is not a sample player.** Ostrich 7765 reads the machines' **original sound ROMs**
+(your own images) instead of playing recordings of them: a recording always carries the
+recording hardware with it, and a set of samples knows nothing of how the machine plays
+them. Around the ROM data it rebuilds, in part, what each machine does with it: sample
+rates and the order in which the sounds are read, accent from the velocity, envelopes,
+which sounds share a voice and cut each other, levels and panning, and (for the TR-707)
+the analogue voice board with its filters. All of it is worked out from the ROMs, firmware,
+documentation and measurements of real units ([analysis/](analysis/README-ANALYSIS.md)).
+It does not run the machines' firmware, and it has no sequencer: the sounds are played by
+MIDI.
 
 You need your own ROM images. **This repository contains no Roland data and never will.**
 
@@ -22,13 +27,14 @@ You need your own ROM images. **This repository contains no Roland data and neve
   TR-626 11, TR-707 12, TR-727 13; set on the SETTINGS page), all playing at the same time.
   The TR-727 is prepared but needs its sound ROMs, which have not been dumped yet.
 - **A panel per machine**: a column per group of sounds with its LEVEL and its pads (each
-  with its MIDI note; click one to hear it), and the machine's VOLUME. Later also the
-  machine's own controls where it has them (such as the TR-626's pitch). Two looks,
+  with its MIDI note; click one to hear it), and the machine's VOLUME. The TR-626 also has
+  its PITCH per sound (-7..+7, as on the unit; it sets the pad clicked last). Two looks,
   VINTAGE (the units' beige) and DARK, chosen on the SETTINGS page.
 - **16 mono outputs** besides the stereo mix: a sound assigned to one of them leaves the
   mix.
-- **Vintage timing (optional):** notes on the grid on which the original CPU handled MIDI,
-  with its jitter.
+- **Vintage timing (optional, per machine):** each note as late and as uneven as on the
+  unit: the MIDI line, the TR-707's 2.8 ms grid, the spread measured on the TR-505 and
+  TR-626 ([analysis/TIMING.md](analysis/TIMING.md)).
 
 Formats: VST3, CLAP and a standalone program on Windows (64-bit); VST3, CLAP and a JACK
 standalone on Linux. No macOS build yet.

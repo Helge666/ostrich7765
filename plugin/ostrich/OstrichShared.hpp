@@ -111,8 +111,19 @@ enum Param : uint32_t
 	kParamChannel,              ///< + machine: its MIDI channel, 1..16 (kDefaultChannel)
 	kParamMachineVolume = kParamChannel + kMachineCount,   ///< + machine: its volume, dB
 	kParamLevel = kParamMachineVolume + kMachineCount,      ///< see kLevelOffset: 0..1
-	kParamCount = kParamLevel + 46
+	kParamTiming = kParamLevel + 46,    ///< + machine: vintage timing, off / on
+	kParamPitch = kParamTiming + kMachineCount,    ///< + TR-626 pad (kColumns626 order): -7..+7
+	kParamCount = kParamPitch + 30
 };
+
+// The TR-626's pitch parameter of pad k of column c (its pitch is set per sound).
+constexpr uint32_t pitchParam(uint32_t column, uint32_t pad)
+{
+	uint32_t i = 0;
+	for (uint32_t c = 0; c < column; c ++)
+		i += kColumns626[c].numPads;
+	return kParamPitch + i + pad;
+}
 
 constexpr uint32_t levelParam(uint32_t machine, uint32_t column)
 {
@@ -123,7 +134,8 @@ static_assert(kLevelOffset[1] - kLevelOffset[0] == kColumns[0].count
               && kLevelOffset[2] - kLevelOffset[1] == kColumns[1].count
               && kLevelOffset[3] - kLevelOffset[2] == kColumns[2].count
               && kLevelOffset[4] - kLevelOffset[3] == kColumns[3].count
-              && kParamCount == kParamLevel + kLevelOffset[4], "a level per column");
+              && kParamTiming == kParamLevel + kLevelOffset[4], "a level per column");
+static_assert(pitchParam(13, 0) == kParamCount, "a pitch per TR-626 sound");
 
 // Each machine starts on a channel of its own, so that all can play at once (the units
 // themselves all start on 10).

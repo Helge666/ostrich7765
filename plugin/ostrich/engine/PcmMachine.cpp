@@ -320,6 +320,14 @@ void PcmMachine::renderBlock(int n, float* left, float* right)
     }
 }
 
+// The TR-626's pitch steps. assumed: a semitone per step; to be measured on the unit.
+constexpr double kTr626PitchStep = 1.0594630943592953;
+
+double PcmMachine::tr626PitchFactor(int step)
+{
+    return std::pow(kTr626PitchStep, std::clamp(step, -7, 7));
+}
+
 int PcmMachine::noteToSound(Model model, int note)
 {
     if (model == kTr505) {

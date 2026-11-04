@@ -97,6 +97,16 @@ constexpr float kTr505Out[16][2] = {
     {0.281f, 0.608f},   // closed hi-hat
 };
 
+// TR-505: a pulse with every hit that follows the envelope (the VCA transistor's quiescent
+// current), as a fraction of the sound's full scale at 47k: measured (tools/measure/
+// vca_fit.py: the low frequencies most sounds have in the recordings beyond the ROM data,
+// band shares 40 Hz-5 kHz from 3.7 to 1.8 dB rms on average). Larger against the signal
+// the larger the channel's documented series resistor (kOhm), the signal at the
+// transistor's base the smaller: scaled by (R + 2.2k) / (47k + 2.2k) (derived).
+constexpr double kTr505Pulse = 0.05;
+constexpr double kTr505Series[16] = {47, 47, 47, 47, 47, 47, 33, 47, 100, 82, 100, 82, 47, 47, 47, 47};
+constexpr double kHpA = 1.0 / (1.0 + 2.0 * 3.14159265358979 * 0.34 / PcmMachine::kRate);
+
 // TR-626: the closed hi-hat cuts the open one off. Not yet measured (ROADMAP.md); the
 // usual behaviour of Roland's drum machines. No envelope yet (to measure).
 int tr626Cuts(int sound) { return sound == 25 ? 10 : -1; }
@@ -116,6 +126,7 @@ PcmMachine::PcmMachine(Model model) : model_(model), numSounds_(model == kTr505 
             voices_[s].outL = kTr505Out[s][0];
             voices_[s].outR = kTr505Out[s][1];
             voices_[s].hold = uint32_t(kTr505Hold * kRate);
+            voices_[s].pulse = float(kTr505Pulse * (kTr505Series[s] + 2.2) / (47.0 + 2.2) * 128.0);
         }
         voices_[s].step = kSampleRate / kRate;
     }
@@ -127,6 +138,7 @@ void PcmMachine::reset()
         v.playing = false;
         v.pos = 0.0;
     }
+    hpXL_ = hpYL_ = hpXR_ = hpYR_ = 0.0f;
 }
 
 void PcmMachine::trigger(int sound, int velocity)
@@ -164,11 +176,14 @@ void PcmMachine::render(int n, float* left, float* right)
         for (int i = 0; i < n; ++i) {
             const uint32_t k = uint32_t(v.pos);
             const float e = float(v.env) - v.v0;
-            if (k >= v.length || e <= 0.0f) {
+            // With an envelope pulse the voice lasts as long as its envelope: after the
+            // sound's end the DAC gives its centre and the pulse fades on (assumed).
+            if (e <= 0.0f || (k >= v.length && v.pulse == 0.0f)) {
                 v.playing = false;
                 break;
             }
-            const float x = (float(data[k ^ v.flip]) - 128.0f) * g * e;
+            const float d = k < v.length ? float(data[k ^ v.flip]) - 128.0f : 0.0f;
+            const float x = (d + v.pulse) * g * e;
             if (v.holdLeft)
                 --v.holdLeft;
             else
@@ -177,6 +192,18 @@ void PcmMachine::render(int n, float* left, float* right)
             right[i] += x * v.outR;
             v.pos += v.step;
         }
+    }
+    if (model_ != kTr505)
+        return;
+    // The output's coupling capacitors (C52 / C50 10 uF into R111 / R110 47k: 0.34 Hz).
+    for (int i = 0; i < n; ++i) {
+        const float l = left[i], r = right[i];
+        hpYL_ = float(kHpA) * (hpYL_ + l - hpXL_);
+        hpYR_ = float(kHpA) * (hpYR_ + r - hpXR_);
+        hpXL_ = l;
+        hpXR_ = r;
+        left[i] = hpYL_;
+        right[i] = hpYR_;
     }
 }
 

@@ -56,6 +56,7 @@ private:
         float v0 = 0.0f;
         uint32_t hold = 0, holdLeft = 0;  // internal samples before the decay starts
         float outL = 1.0f, outR = 1.0f;   // gain at the two outputs (kTr505Out)
+        float pulse = 0.0f;               // envelope pulse in sample units (kTr505Pulse)
         double pos = 0.0, step = 0.25;
         float gain = 0.0f;
         bool playing = false;
@@ -65,6 +66,7 @@ private:
     const int numSounds_;
     const uint8_t* rom_ = nullptr;
     std::array<Voice, kMaxSounds> voices_;
+    float hpXL_ = 0.0f, hpYL_ = 0.0f, hpXR_ = 0.0f, hpYR_ = 0.0f;   // output high pass
 };
 
 } // namespace ostrich

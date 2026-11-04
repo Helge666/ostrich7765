@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Ostrich 7765 -- the panel.  A header, a tab per machine and one for the settings, the
-// machine's page, and a status line.  Phase 0 (ROADMAP.md): the pages are placeholders;
-// the columns per sound (level, pads with their notes, the machine's own controls) follow
-// in phase 4.
+// machine's page, and a status line.  A machine's page has its ROM setup for now; the
+// columns per sound (level, pads with their notes, the machine's own controls) follow in
+// phase 4 (ROADMAP.md).
 
 #include "DistrhoUI.hpp"
 #include "OstrichShared.hpp"
@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 START_NAMESPACE_DISTRHO
 
@@ -57,12 +58,35 @@ const char *const kMachineTitles[kNumMachines] = {
 	"TR-505  RHYTHM COMPOSER", "TR-626  RHYTHM COMPOSER", "TR-707  RHYTHM COMPOSER",
 	"TR-727  RHYTHM COMPOSER",
 };
-const char *const kMachineNotes[kNumMachines] = {
-	"Plays from its ROM image. The page's sounds and controls follow (ROADMAP.md, phase 4).",
-	"Plays from its ROM image. The page's sounds and controls follow (ROADMAP.md, phase 4).",
-	"Plays from its ROM images. The page's sounds and controls follow (ROADMAP.md, phase 4).",
-	"Prepared. The TR-727's sound ROMs have not been dumped yet.",
+
+// ---- the ROM setup on each machine's page ----------------------------------------------
+
+// The rows of a machine's ROM list: what it needs, and the images (RomImage, Roms.hpp)
+// any one of which fills the row.  -1 ends a list.
+struct RomRow { const char *chip, *what; int images[4]; };
+const RomRow kRomRows505[] = {
+	{ "SOUND ROM", "128 KiB: the raw, the pin-order or the decoded dump", { 4, 5, 6, -1 } },
 };
+const RomRow kRomRows626[] = {
+	{ "SOUND ROM", "256 KiB, the raw dump (put in order when it loads)", { 7, -1 } },
+};
+const RomRow kRomRows707[] = {
+	{ "IC34", "voices: bass drum, snare, low and mid tom (32 KiB)", { 0, -1 } },
+	{ "IC35", "voices: high tom, hi-hat, rim / cowbell, clap / tambourine (32 KiB)", { 1, -1 } },
+	{ "IC19", "crash cymbal (32 KiB)", { 2, -1 } },
+	{ "IC22", "ride cymbal (32 KiB)", { 3, -1 } },
+};
+struct RomRows { const RomRow *rows; uint32_t count; };
+const RomRows kRomRows[kNumMachines] = {
+	{ kRomRows505, 1 }, { kRomRows626, 1 }, { kRomRows707, 4 }, { nullptr, 0 },
+};
+constexpr int kNumRomImagesUi = 8;   // RomImage's count (Roms.hpp is DSP side)
+
+constexpr float kRomX = kMargin + 40, kRomY = kBodyY + 92, kRomRowH = 30;
+inline Rect romButton(uint32_t rows)
+{
+	return { kRomX, kRomY + float(rows) * kRomRowH + 22, 220, 32 };
+}
 
 // The settings page: a row per machine with its MIDI channel, - and + either side.
 const float kChanX = kBody.x + 40, kChanY = kBody.y + 92;
@@ -89,6 +113,7 @@ public:
 		loadSharedResources();
 		for (uint32_t m = 0; m < kNumMachines; m ++)
 			m_channel[m] = kDefaultChannel[m];
+		m_romFile.resize(kNumRomImagesUi);
 	}
 
 protected:
@@ -121,6 +146,11 @@ protected:
 	{
 		if (std::strcmp(key, "uisize") == 0)
 			restoreSize(value);
+		else if (std::strcmp(key, "romset") == 0)
+		{
+			setRomSet(value);
+			repaint();
+		}
 		else if (std::strcmp(key, "tab") == 0)
 		{
 			const int t = std::atoi(value);
@@ -159,7 +189,25 @@ protected:
 				if (chanPlus(m).contains(x, y))
 					return changeChannel(m, 1), true;
 			}
+		if (m_tab < kNumMachines && kRomRows[m_tab].count
+		    && romButton(kRomRows[m_tab].count).contains(x, y))
+			return browseRom(m_tab), true;
 		return false;
+	}
+
+	void uiFileBrowserSelected(const char *filename) override
+	{
+		const int m = m_browseMachine;
+		m_browseMachine = -1;
+		if (m < 0 || filename == nullptr || filename[0] == '\0')
+			return;                         // cancelled
+		m_romDir = dirOf(filename);
+		m_romAsked = ++ m_romSeq;
+		m_romAskedMachine = uint32_t(m);
+		m_romAskedAt = std::chrono::steady_clock::now();
+		const std::string msg = std::to_string(m_romSeq) + " " + std::to_string(m) + " " + filename;
+		setState("romfile", msg.c_str());
+		repaint();
 	}
 
 	void onNanoDisplay() override
@@ -180,6 +228,14 @@ protected:
 		if (!m_frameFitted && std::chrono::steady_clock::now() - m_created < std::chrono::seconds(2))
 			fitHostFrame();
 		saveSizeWhenSettled();
+		// No answer from the DSP: say so rather than wait for ever.
+		if (m_romAsked && std::chrono::steady_clock::now() - m_romAskedAt > std::chrono::seconds(20))
+		{
+			m_romAsked = 0;
+			m_romMsgMachine = m_romAskedMachine;
+			m_romMsg = "No answer from the plugin. Is it running (an active track)?";
+			repaint();
+		}
 	}
 
 private:
@@ -262,18 +318,8 @@ private:
 		fillColor(kPanel);
 		fill();
 
-		const float cx = kBody.x + kBody.w / 2, cy = kBody.y + kBody.h / 2;
-		textAlign(ALIGN_CENTER | ALIGN_BASELINE);
 		if (m_tab < kNumMachines)
-		{
-			fontSize(22);
-			fillColor(kTabColour[m_tab]);
-			text(cx, cy - 10, kMachineTitles[m_tab], nullptr);
-			fontSize(13);
-			fillColor(kInkDim);
-			text(cx, cy + 20, kMachineNotes[m_tab], nullptr);
-			return;
-		}
+			return drawRoms(m_tab);
 		drawChannels();
 
 		// What is still to come, to the right.
@@ -286,7 +332,150 @@ private:
 		fillColor(kInkDim);
 		text(rx, kBody.y + 110, "The assignment of the sounds to OUT 1-16.", nullptr);
 		text(rx, kBody.y + 132, "Vintage timing: the original CPU's MIDI grid and jitter.", nullptr);
-		text(rx, kBody.y + 154, "The ROM images found for each machine.", nullptr);
+	}
+
+	// A machine's page: its title, the ROM images it needs and where they came from, a
+	// button to pick a file, and the answer to the last pick.
+	void drawRoms(uint32_t m)
+	{
+		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
+		fontSize(22);
+		fillColor(kTabColour[m]);
+		text(kRomX, kBody.y + 44, kMachineTitles[m], nullptr);
+		fontSize(15);
+		fillColor(kInk);
+		text(kRomX, kBody.y + 76, "ROM IMAGES", nullptr);
+
+		const RomRows &rr = kRomRows[m];
+		if (rr.count == 0)
+		{
+			fontSize(13);
+			fillColor(kInkDim);
+			text(kRomX, kRomY + 14, "No dumps of the TR-727's sound ROMs are known yet. The engine is prepared;", nullptr);
+			text(kRomX, kRomY + 34, "it plays once someone dumps them.", nullptr);
+			return;
+		}
+		bool all = true;
+		for (uint32_t r = 0; r < rr.count; r ++)
+		{
+			const RomRow &row = rr.rows[r];
+			std::string file;
+			for (int k = 0; k < 4 && row.images[k] >= 0 && file.empty(); k ++)
+				file = m_romFile[size_t(row.images[k])];
+			all &= !file.empty();
+			const float y = kRomY + float(r) * kRomRowH + 14;
+			// A lamp: found or missing.
+			beginPath();
+			circle(kRomX + 6, y - 4, 5);
+			fillColor(file.empty() ? Color(150, 60, 52) : Color(90, 190, 100));
+			fill();
+			fontSize(14);
+			fillColor(kInk);
+			text(kRomX + 22, y, row.chip, nullptr);
+			fontSize(12);
+			fillColor(kInkDim);
+			text(kRomX + 130, y, row.what, nullptr);
+			fillColor(file.empty() ? Color(210, 120, 100) : kInk);
+			text(kRomX + 640, y, file.empty() ? "missing" : file.c_str(), nullptr);
+		}
+
+		const Rect b = romButton(rr.count);
+		const bool busy = m_romAsked != 0;
+		beginPath();
+		roundedRect(b.x, b.y, b.w, b.h, 4);
+		fillColor(busy ? Color(40, 40, 44) : Color(48, 48, 54));
+		fill();
+		strokeColor(busy ? kEdge : Color(kTabColour[m], kEdge, 0.4f));
+		strokeWidth(1);
+		stroke();
+		textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
+		fontSize(13);
+		fillColor(busy ? kInkDim : kInk);
+		text(b.x + b.w / 2, b.y + b.h / 2 + 1, busy ? "LOOKING ..." : "CHOOSE A ROM FILE ...", nullptr);
+
+		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
+		fontSize(12);
+		fillColor(kInkDim);
+		text(b.x + b.w + 20, b.y + 13, "Pick any image of the set, or a zip (MAME's). Its whole folder is searched; what is", nullptr);
+		text(b.x + b.w + 20, b.y + 29, ("found is copied to " + m_romInstallDir + ", by content, whatever the names.").c_str(), nullptr);
+
+		if (!m_romMsg.empty() && m_romMsgMachine == m)
+		{
+			fontSize(13);
+			fillColor(all ? Color(140, 210, 140) : Color(230, 170, 120));
+			text(kRomX, b.y + b.h + 34, m_romMsg.c_str(), nullptr);
+		}
+		else if (all)
+		{
+			fontSize(13);
+			fillColor(kInkDim);
+			text(kRomX, b.y + b.h + 34, "All there: it plays. Its sounds and controls follow on this page (ROADMAP.md, phase 4).", nullptr);
+		}
+	}
+
+	void browseRom(uint32_t m)
+	{
+		if (m_romAsked)
+			return;
+		const std::string title = std::string("Pick a ") + kMachineNames[m] + " ROM image or a zip -- the rest of its folder is searched too";
+		FileBrowserOptions opts;
+		opts.title = title.c_str();
+		opts.startDir = m_romDir.empty() ? nullptr : m_romDir.c_str();
+		m_browseMachine = int(m);
+		if (!openFileBrowser(opts))
+			m_browseMachine = -1;
+	}
+
+	// "romset" (OstrichShared.hpp): the files found, the install folder, the last answer.
+	void setRomSet(const char *value)
+	{
+		std::string v(value ? value : "");
+		size_t pos = 0;
+		while (pos < v.size())
+		{
+			size_t eol = v.find('\n', pos);
+			if (eol == std::string::npos)
+				eol = v.size();
+			std::vector<std::string> f;
+			size_t a = pos;
+			while (true)
+			{
+				const size_t t = v.find(kRomSetFieldSep, a);
+				if (t == std::string::npos || t > eol)
+				{
+					f.push_back(v.substr(a, eol - a));
+					break;
+				}
+				f.push_back(v.substr(a, t - a));
+				a = t + 1;
+			}
+			if (f.size() >= 3 && f[0] == "img")
+			{
+				const int i = std::atoi(f[1].c_str());
+				if (i >= 0 && i < kNumRomImagesUi)
+					m_romFile[size_t(i)] = f[2];
+			}
+			else if (f.size() >= 2 && f[0] == "dir")
+				m_romInstallDir = f[1];
+			else if (f.size() >= 4 && f[0] == "msg")
+			{
+				const unsigned seq = unsigned(std::strtoul(f[2].c_str(), nullptr, 10));
+				// Only the answer to this panel's own request (another one's is old news).
+				if (seq != 0 && seq == m_romAsked)
+				{
+					m_romAsked = 0;
+					m_romMsgMachine = uint32_t(std::atoi(f[1].c_str()));
+					m_romMsg = f[3];
+				}
+			}
+			pos = eol + 1;
+		}
+	}
+
+	static std::string dirOf(const std::string &path)
+	{
+		const size_t cut = path.find_last_of("/\\");
+		return cut == std::string::npos ? std::string() : path.substr(0, cut);
 	}
 
 	void drawChannels()
@@ -364,7 +553,7 @@ private:
 		fontSize(12);
 		textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
 		fillColor(kInkDim);
-		text(kMargin, y, "Plays from MIDI, one channel per machine (SETTINGS). Needs your own ROM images.", nullptr);
+		text(kMargin, y, "Plays from MIDI, one channel per machine (SETTINGS). Needs your own ROM images (each machine's page).", nullptr);
 		textAlign(ALIGN_RIGHT | ALIGN_MIDDLE);
 		text(kW - kMargin, y, "No Roland data included. Not affiliated with Roland.", nullptr);
 	}
@@ -444,6 +633,14 @@ private:
 
 	uint32_t m_tab = kTR505;
 	int m_channel[kNumMachines];
+
+	// The ROM setup.
+	std::vector<std::string> m_romFile;         // per RomImage: where it came from, or empty
+	std::string m_romInstallDir, m_romDir, m_romMsg;
+	int m_browseMachine = -1;                   // the file browser is open for this machine
+	unsigned m_romSeq = 0, m_romAsked = 0;      // the request waiting for its answer, or 0
+	uint32_t m_romAskedMachine = 0, m_romMsgMachine = 0;
+	std::chrono::steady_clock::time_point m_romAskedAt {};
 
 	const std::chrono::steady_clock::time_point m_created = std::chrono::steady_clock::now();
 	std::string m_sizeSaved;                    // "<w> <h>" unscaled, as in the plugin state

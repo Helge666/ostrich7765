@@ -58,8 +58,10 @@ Decisions so far:
 
 ## Phase 4: the plugin
 
-- [ ] ROM setup per tab (as in Ostrich 220): choose a file, the rest of its folder is
-      found by content, scrambled dumps put in order.
+- [x] ROM setup per tab (as in Ostrich 220): choose a file (or a zip), the rest of its
+      folder is found by content and copied into the ROM folder, scrambled dumps put in
+      order; the machine starts at once. Each machine's page lists its images and where
+      they came from.
 - [ ] Panel in the style of `Research/gui_example.png`: a column per sound, level, pads
       with their notes, the machine's own controls.
 - [ ] MIDI channel per machine, the mono-output assignment, session state.

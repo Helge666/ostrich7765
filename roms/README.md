@@ -3,7 +3,13 @@
 Ostrich 7765 needs dumps of the machines' sound ROMs. **None are included, and none ever
 will be.** Each machine plays once its own images are found; the others can be missing.
 
-The images are recognised by their contents (SHA-1), so the file names do not matter.
+The images are recognised by their contents (SHA-1), so the file names do not matter. They
+may also be entries of zip files (MAME's `tr707.zip`, for instance), under any names.
+
+The easiest way: open the plugin's panel, go to the machine's page and click **CHOOSE A ROM
+FILE**. Pick any image of the set, or a zip; its whole folder is searched, and whatever is
+found there (for any of the machines) and still missing is copied into the ROM folder below.
+The machine starts playing at once.
 
 | Machine | Images | Size |
 |---|---|---|
@@ -30,4 +36,5 @@ Where they go:
 - Windows: `C:\ProgramData\Ostrich 7765\roms\`
 - Linux: `~/.local/share/Ostrich 7765/roms/` (or `$XDG_DATA_HOME/Ostrich 7765/roms/`)
 
-The environment variable `OSTRICH_ROMS` names a folder searched first.
+The environment variable `OSTRICH_ROMS` names a folder searched first. Files you put there
+by hand are found the next time the plugin loads.

@@ -48,8 +48,16 @@ enum State : uint32_t
 {
 	kStateUiSize = 0,           ///< host session: the panel's size, "<w> <h>" unscaled
 	kStateTab,                  ///< host session: the tab shown, "0".."4"
+	kStateRomSet,               ///< DSP -> UI: the ROM images found, see below
+	kStateRomFile,              ///< UI -> DSP, "<seq> <machine> <path>": a file the user picked
 	kStateCount
 };
+
+// "romset": lines of tab-separated fields.
+//   "img" <RomImage> <the file it came from, as shown; empty if missing>
+//   "dir" <the folder picked images are copied to>
+//   "msg" <machine> <seq of the request> <text>   (the answer to the last "romfile")
+constexpr char kRomSetFieldSep = '\t';
 
 // ---- outputs -----------------------------------------------------------------------------
 

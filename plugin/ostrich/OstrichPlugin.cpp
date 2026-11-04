@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Ostrich 7765 -- the DSP side: the outputs (the stereo mix and 16 mono outputs), MIDI per
-// machine, the panel's size and tab in the host's session.  Phase 2 (ROADMAP.md): the
-// TR-505, TR-626 and TR-707 play into the mix; the TR-727 (no ROMs yet) and the mono
-// outputs follow.
+// machine, the panel's size and tab in the host's session, the ROM setup.  Phase 2
+// (ROADMAP.md): the TR-505, TR-626 and TR-707 play into the mix; the TR-727 (no ROMs yet)
+// and the mono outputs follow.
 
 #include "DistrhoPlugin.hpp"
 #include "OstrichShared.hpp"
@@ -16,12 +16,15 @@
 #include "engine/Tr707.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 START_NAMESPACE_DISTRHO
@@ -36,8 +39,18 @@ public:
 	{
 		for (uint32_t m = 0; m < kNumMachines; m ++)
 			m_channel[m] = kDefaultChannel[m];
-		loadRoms();
+		m_roms.scan();
+		Engines e;
+		buildEngines(m_roms, e);
+		takeEngines(e);
+		publishRomSet(0, 0, std::string());
 		sampleRateChanged(getSampleRate());
+	}
+
+	~OstrichPlugin() override
+	{
+		if (m_romThread.joinable())
+			m_romThread.join();
 	}
 
 protected:
@@ -157,6 +170,19 @@ protected:
 			state.key = "tab";
 			state.label = "Panel tab";
 			break;
+		case kStateRomSet:
+			state.key = "romset";
+			state.label = "ROM images";
+			state.hints = kStateIsOnlyForUI;
+			state.defaultValue = "";
+			return;
+		case kStateRomFile:
+			// "<seq> <machine> <path>": see requestRomFile.
+			state.key = "romfile";
+			state.label = "ROM image file";
+			state.hints = kStateIsOnlyForDSP;
+			state.defaultValue = "";
+			return;
 		}
 		state.hints = 0;
 		state.defaultValue = "";
@@ -169,11 +195,15 @@ protected:
 			return String(m_uiSize.c_str());
 		if (std::strcmp(key, "tab") == 0)
 			return String(m_tab.c_str());
+		if (std::strcmp(key, "romset") == 0)
+			return String(m_romSet.c_str());
 		return String();
 	}
 
 	void setState(const char *key, const char *value) override
 	{
+		if (std::strcmp(key, "romfile") == 0)
+			return requestRomFile(value);
 		std::lock_guard<std::mutex> lock(m_stateLock);
 		if (std::strcmp(key, "uisize") == 0)
 			m_uiSize = value;
@@ -203,6 +233,7 @@ protected:
 
 	void activate() override
 	{
+		std::lock_guard<std::mutex> lock(m_engineLock);
 		for (Slot &s : m_slots)
 			s.resampler.reset();
 		if (m_tr707)
@@ -217,6 +248,22 @@ protected:
 	{
 		for (uint32_t c = 0; c < DISTRHO_PLUGIN_NUM_OUTPUTS; c ++)
 			std::memset(outputs[c], 0, sizeof(float) * frames);
+
+		if (m_romSetPending.load())
+		{
+			// Set by the ROM thread: never wait for it here.
+			std::unique_lock<std::mutex> sl(m_stateLock, std::try_to_lock);
+			if (sl.owns_lock())
+			{
+				m_romSetPending.store(false);
+				updateStateValue("romset", m_romSet.c_str());
+			}
+		}
+		// Held for a moment only, while the ROM thread hands over new engines: this block is
+		// silent then.
+		std::unique_lock<std::mutex> engines(m_engineLock, std::try_to_lock);
+		if (!engines.owns_lock())
+			return;
 
 		const float gain = std::pow(10.0f, m_volumeDb / 20.0f) * kTrim;
 		uint32_t pos = 0, ev = 0;
@@ -275,37 +322,145 @@ private:
 		return m == kTR707 ? m_tr707 != nullptr : m < 2 && m_pcm[m] != nullptr;
 	}
 
-	void loadRoms()
+	// ---- ROMs ----------------------------------------------------------------------------
+
+	// What a set of ROM images makes: the engines of the machines it is complete for.
+	struct Engines
 	{
-		m_roms.scan();
-		if (m_roms.has(kRom707IC34) && m_roms.has(kRom707IC35) && m_roms.has(kRom707IC19)
-		    && m_roms.has(kRom707IC22))
+		std::vector<uint8_t> voices707;
+		std::unique_ptr<Tr707> tr707;
+		std::vector<uint8_t> soundOrder[2];          // TR-505, TR-626
+		std::unique_ptr<PcmMachine> pcm[2];
+	};
+
+	static void buildEngines(const RomLibrary &roms, Engines &e)
+	{
+		if (roms.complete(kTR707))
 		{
 			// IC34, then IC35 (both 32 KiB, checked by their SHA-1).
-			const auto &ic34 = m_roms.image(kRom707IC34), &ic35 = m_roms.image(kRom707IC35);
-			m_voices707.resize(ic34.size() + ic35.size());
-			std::memcpy(m_voices707.data(), ic34.data(), ic34.size());
-			std::memcpy(m_voices707.data() + ic34.size(), ic35.data(), ic35.size());
-			m_tr707 = std::make_unique<Tr707>(false);
-			m_tr707->setRoms({ m_voices707.data(), m_roms.image(kRom707IC19).data(),
-			                   m_roms.image(kRom707IC22).data() });
+			const auto &ic34 = roms.image(kRom707IC34), &ic35 = roms.image(kRom707IC35);
+			e.voices707.resize(ic34.size() + ic35.size());
+			std::memcpy(e.voices707.data(), ic34.data(), ic34.size());
+			std::memcpy(e.voices707.data() + ic34.size(), ic35.data(), ic35.size());
+			e.tr707 = std::make_unique<Tr707>(false);
+			e.tr707->setRoms({ e.voices707.data(), roms.image(kRom707IC19).data(),
+			                   roms.image(kRom707IC22).data() });
 		}
 		// TR-505: any of the three known forms of its dump.
-		if (m_roms.has(kRom505Decoded))
-			m_soundOrder[kTR505] = m_roms.image(kRom505Decoded);
-		else if (m_roms.has(kRom505PinOrder))
-			m_soundOrder[kTR505] = tr505SoundOrder(m_roms.image(kRom505PinOrder), false);
-		else if (m_roms.has(kRom505Raw))
-			m_soundOrder[kTR505] = tr505SoundOrder(m_roms.image(kRom505Raw), true);
-		if (m_roms.has(kRom626))
-			m_soundOrder[kTR626] = tr626SoundOrder(m_roms.image(kRom626));
+		if (roms.has(kRom505Decoded))
+			e.soundOrder[kTR505] = roms.image(kRom505Decoded);
+		else if (roms.has(kRom505PinOrder))
+			e.soundOrder[kTR505] = tr505SoundOrder(roms.image(kRom505PinOrder), false);
+		else if (roms.has(kRom505Raw))
+			e.soundOrder[kTR505] = tr505SoundOrder(roms.image(kRom505Raw), true);
+		if (roms.has(kRom626))
+			e.soundOrder[kTR626] = tr626SoundOrder(roms.image(kRom626));
 		for (uint32_t m : { uint32_t(kTR505), uint32_t(kTR626) })
 		{
-			if (m_soundOrder[m].empty())
+			if (e.soundOrder[m].empty())
 				continue;
-			m_pcm[m] = std::make_unique<PcmMachine>(m == kTR505 ? PcmMachine::kTr505 : PcmMachine::kTr626);
-			m_pcm[m]->setRom(m_soundOrder[m].data());
+			e.pcm[m] = std::make_unique<PcmMachine>(m == kTR505 ? PcmMachine::kTr505 : PcmMachine::kTr626);
+			e.pcm[m]->setRom(e.soundOrder[m].data());
 		}
+	}
+
+	// Puts in the engines of the machines that had none; a machine that plays keeps its
+	// own. What is left in `e` (the engines not taken) goes with it.
+	void takeEngines(Engines &e)
+	{
+		std::lock_guard<std::mutex> lock(m_engineLock);
+		if (!m_tr707 && e.tr707)
+		{
+			m_voices707.swap(e.voices707);
+			m_tr707.swap(e.tr707);
+		}
+		for (uint32_t m : { uint32_t(kTR505), uint32_t(kTR626) })
+			if (!m_pcm[m] && e.pcm[m])
+			{
+				// A swapped vector keeps its buffer: the engine's pointer into it stays good.
+				m_soundOrder[m].swap(e.soundOrder[m]);
+				m_pcm[m].swap(e.pcm[m]);
+			}
+	}
+
+	// The panel's ROM list (OstrichShared.hpp, "romset"), with the answer to request `seq`.
+	void publishRomSet(uint32_t machine, unsigned seq, const std::string &message)
+	{
+		const std::string sep(1, kRomSetFieldSep);
+		std::string t;
+		for (int i = 0; i < kNumRomImages; i ++)
+			t += "img" + sep + std::to_string(i) + sep
+			     + (m_roms.has(RomImage(i)) ? m_roms.shownName(RomImage(i)) : std::string()) + "\n";
+		t += "dir" + sep + RomLibrary::installFolder() + "\n";
+		if (seq)
+			t += "msg" + sep + std::to_string(machine) + sep + std::to_string(seq) + sep + message + "\n";
+		std::lock_guard<std::mutex> lock(m_stateLock);
+		m_romSet = t;
+		m_romSetPending.store(true);
+	}
+
+	// From the panel: "<seq> <machine> <path>", a file the user picked. It and its folder
+	// are searched on a thread of their own (SHA-1 over up to a few MB, file copies).
+	void requestRomFile(const char *value)
+	{
+		unsigned seq = 0, machine = 0;
+		int used = 0;
+		if (std::sscanf(value, "%u %u %n", &seq, &machine, &used) < 2 || used == 0
+		    || value[used] == '\0' || machine >= kNumMachines)
+			return;
+		if (m_romBusy.exchange(true))
+			return;
+		if (m_romThread.joinable())
+			m_romThread.join();
+		const std::string picked = value + used;
+		m_romThread = std::thread([this, seq, machine, picked] {
+			installRoms(seq, machine, picked);
+			m_romBusy.store(false);
+		});
+	}
+
+	// Copies what the picked file and its folder hold and the ROM folders lack into the
+	// install folder, looks again, and starts the machines that are now complete.
+	void installRoms(unsigned seq, uint32_t machine, const std::string &picked)
+	{
+		namespace fs = std::filesystem;
+		const fs::path file(std::u8string(picked.begin(), picked.end()));
+		RomLibrary found;
+		std::string why, error;
+		const bool known = found.scanFile(file, &why);
+		found.scanFolder(file.parent_path());
+		const int copied = m_roms.install(found, error);
+
+		RomLibrary now;
+		now.scan();
+		Engines e;
+		buildEngines(now, e);
+		takeEngines(e);
+		m_roms = std::move(now);
+
+		std::string msg;
+		if (!known)
+			msg = why + ". ";
+		if (copied)
+			msg += "Copied " + std::to_string(copied) + (copied == 1 ? " image" : " images")
+			       + " to the ROM folder. ";
+		if (!error.empty())
+			msg += "Could not copy all of them: " + error + ". ";
+		if (machine == kTR727)
+			msg += "No dumps of the TR-727's sound ROMs are known yet.";
+		else if (m_roms.complete(machine))
+			msg += std::string(kMachineNames[machine]) + (copied ? " plays." : " has all it needs.");
+		else if (machine == kTR707)
+		{
+			std::string missing;
+			for (int i = kRom707IC34; i <= kRom707IC22; i ++)
+				if (!m_roms.has(RomImage(i)))
+					missing += std::string(missing.empty() ? "" : ", ") + kRom707Chips[i - kRom707IC34];
+			msg += "Still missing: " + missing + ".";
+		}
+		else
+			msg += "Its sound ROM is still missing.";
+		publishRomSet(machine, seq, msg);
 	}
 
 	void midi(const MidiEvent &e)
@@ -328,7 +483,10 @@ private:
 	float m_volumeDb = 0.0f;
 	int m_channel[kNumMachines];
 
-	RomLibrary m_roms;
+	static constexpr const char *kRom707Chips[4] = { "IC34", "IC35", "IC19", "IC22" };
+
+	RomLibrary m_roms;                             // the ROM thread's, once it runs
+	std::mutex m_engineLock;                       // the engines below, against the ROM thread
 	std::vector<uint8_t> m_voices707;
 	std::unique_ptr<Tr707> m_tr707;
 	std::vector<uint8_t> m_soundOrder[2];          // TR-505, TR-626
@@ -337,7 +495,9 @@ private:
 	int m_maxIn = 0;
 
 	mutable std::mutex m_stateLock;
-	std::string m_uiSize, m_tab;
+	std::string m_uiSize, m_tab, m_romSet;
+	std::atomic<bool> m_romSetPending { false }, m_romBusy { false };
+	std::thread m_romThread;
 
 	DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OstrichPlugin)
 };

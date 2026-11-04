@@ -2,6 +2,8 @@
 
 #include "PcmMachine.hpp"
 
+#include <cmath>
+
 namespace ostrich {
 
 namespace {
@@ -50,9 +52,28 @@ constexpr float kTr626Accent[64] = {
     0.946f, 0.952f, 0.961f, 0.967f, 0.973f, 0.982f, 0.989f, 0.995f, 1.000f,
 };
 
-// Sounds that cut another one off: the closed hi-hat the open one. Not yet measured on
-// the units (ROADMAP.md); the usual behaviour of Roland's drum machines.
-constexpr int kTr505Cuts[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 14};
+// TR-505: the channel of the address counter each sound plays on (documented, service
+// notes Table 1); a sound cuts off any other sound of its channel.
+constexpr int kTr505Channel[16] = {2, 2, 2, 2, 3, 4, 5, 4, 7, 6, 7, 6, 1, 1, 0, 0};
+
+// TR-505: the envelope. Flat for kTr505Hold, then g = (exp(-t / tau) - v0) / (1 - v0),
+// silent from g = 0: a capacitor per channel discharging, the transistor VCA closing
+// below a threshold. Measured (tools/measure/envelope.py, the recordings at velocity
+// 127): one hold and one v0 for all sounds, tau per sound, within 0.2-0.8 dB rms. tau
+// goes with the documented capacitors (C20-C27: 0.022, 0.047, 0.1 uF; about 110, 260 and
+// 600 ms); the bass drum, too short to measure, takes the other 4 KiB sounds' value
+// (derived).
+constexpr double kTr505Hold = 0.035;
+constexpr float kTr505V0 = 0.18f;
+constexpr float kTr505Tau[16] = {
+    0.258f, 0.264f, 0.264f, 0.264f,   // timbale, low, high, mid tom
+    0.112f, 0.107f, 0.135f, 0.100f,   // bass drum, low conga, snare, high conga
+    0.123f, 0.107f, 0.118f, 0.107f,   // hand clap, low cowbell, rim shot, high cowbell
+    0.580f, 0.608f, 0.636f, 0.210f,   // crash, ride, open hi-hat, closed hi-hat
+};
+
+// TR-626: the closed hi-hat cuts the open one off. Not yet measured (ROADMAP.md); the
+// usual behaviour of Roland's drum machines. No envelope yet (to measure).
 int tr626Cuts(int sound) { return sound == 25 ? 10 : -1; }
 
 } // namespace
@@ -64,6 +85,11 @@ PcmMachine::PcmMachine(Model model) : model_(model), numSounds_(model == kTr505 
         voices_[s].offset = r.offset + (model == kTr626 && s >= 15 ? 0x20000 : 0);
         voices_[s].length = r.length;
         voices_[s].flip = model == kTr505 ? kTr505Flip[s] : 0;
+        if (model == kTr505) {
+            voices_[s].decay = std::exp(-1.0 / (double(kTr505Tau[s]) * kRate));
+            voices_[s].v0 = kTr505V0;
+            voices_[s].hold = uint32_t(kTr505Hold * kRate);
+        }
         voices_[s].step = kSampleRate / kRate;
     }
 }
@@ -84,10 +110,16 @@ void PcmMachine::trigger(int sound, int velocity)
     Voice& v = voices_[sound];
     v.gain = (model_ == kTr505 ? kTr505Accent : kTr626Accent)[step];
     v.pos = 0.0;
+    v.env = 1.0;
+    v.holdLeft = v.hold;
     v.playing = true;
-    const int cut = model_ == kTr505 ? kTr505Cuts[sound] : tr626Cuts(sound);
-    if (cut >= 0)
+    if (model_ == kTr505) {
+        for (int s = 0; s < numSounds_; ++s)
+            if (s != sound && kTr505Channel[s] == kTr505Channel[sound])
+                voices_[s].playing = false;
+    } else if (const int cut = tr626Cuts(sound); cut >= 0) {
         voices_[cut].playing = false;
+    }
 }
 
 void PcmMachine::render(int n, float* left, float* right)
@@ -101,14 +133,19 @@ void PcmMachine::render(int n, float* left, float* right)
         if (!v.playing)
             continue;
         const uint8_t* data = rom_ + v.offset;
-        const float g = v.gain / 128.0f;
+        const float g = v.gain / 128.0f / (1.0f - v.v0);
         for (int i = 0; i < n; ++i) {
             const uint32_t k = uint32_t(v.pos);
-            if (k >= v.length) {
+            const float e = float(v.env) - v.v0;
+            if (k >= v.length || e <= 0.0f) {
                 v.playing = false;
                 break;
             }
-            const float x = (float(data[k ^ v.flip]) - 128.0f) * g;
+            const float x = (float(data[k ^ v.flip]) - 128.0f) * g * e;
+            if (v.holdLeft)
+                --v.holdLeft;
+            else
+                v.env *= v.decay;
             left[i] += x;
             right[i] += x;
             v.pos += v.step;

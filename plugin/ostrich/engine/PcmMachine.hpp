@@ -51,6 +51,9 @@ private:
     struct Voice {
         uint32_t offset = 0, length = 0;
         uint32_t flip = 0;            // sample n is read at n ^ flip (see kTr505Flip)
+        double env = 1.0, decay = 1.0;   // envelope (see kTr505Tau): exp(-t / tau) per sample
+        float v0 = 0.0f;
+        uint32_t hold = 0, holdLeft = 0;  // internal samples before the decay starts
         double pos = 0.0, step = 0.25;
         float gain = 0.0f;
         bool playing = false;

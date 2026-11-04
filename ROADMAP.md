@@ -49,7 +49,7 @@ Decisions so far:
 - [ ] TR-707 first (best documented; engine checked against the ROMs, by ear, and playing in the plugin's mix on its MIDI channel, heard right in the owner's DAW on Windows, 2026-11-04; mono outputs open): playback at the original rates, 8-bit multiplying
       DAC with accent, 6-bit DACs for crash and ride, the closed hi-hat's VCA, sounds that
       share a voice cutting each other, sample-and-hold steps, resampling to the host rate.
-- [ ] TR-505, TR-626 (with pitch), TR-727 (prepared; testable once ROMs exist). TR-505 and TR-626 play in the plugin (25 kHz, measured accent, checked against the ROMs); TR-505 hi-hats and cymbals in the sample order measured on the unit; open: the TR-505 channel groups (documented), the 626's pitch, its sample order, voice sharing and hat choke to measure, pan.
+- [ ] TR-505, TR-626 (with pitch), TR-727 (prepared; testable once ROMs exist). TR-505 and TR-626 play in the plugin (25 kHz, measured accent, checked against the ROMs); TR-505 hi-hats and cymbals in the sample order measured on the unit, its envelopes (measured) and channel groups (documented); open: the 626's pitch, its sample order, voice sharing and hat choke to measure, pan.
 
 ## Phase 3: the analogue stages
 

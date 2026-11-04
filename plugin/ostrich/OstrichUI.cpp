@@ -144,14 +144,18 @@ inline Rect columnRect(uint32_t n, uint32_t c)
 inline float knobX(const Rect &r) { return r.x + r.w / 2; }
 inline float knobY(const Rect &r) { return r.y + kKnobDy; }
 
-// Pad k of a column of `count` pads: as many in a row as fit, the last row at the bottom.
+// Pad k of a column of `count` pads: as many in a row as fit, the rows at the bottom; a
+// short row goes on top (three pads: one above, two below).
 inline Rect padRect(const Rect &col, uint32_t count, uint32_t k)
 {
 	const uint32_t perRow = std::max(1u, std::min(count, uint32_t((col.w - 8 + kPadGap) / (kPadW + kPadGap))));
 	const uint32_t rows = (count + perRow - 1) / perRow;
-	const uint32_t row = k / perRow, inRow = std::min(perRow, count - row * perRow);
+	const uint32_t first = count - (rows - 1) * perRow;     // pads in the top row
+	const uint32_t row = k < first ? 0 : 1 + (k - first) / perRow;
+	const uint32_t inRow = row == 0 ? first : perRow;
+	const uint32_t pos = row == 0 ? k : (k - first) % perRow;
 	const float rowW = float(inRow) * kPadW + float(inRow - 1) * kPadGap;
-	const float x = col.x + (col.w - rowW) / 2 + float(k % perRow) * (kPadW + kPadGap);
+	const float x = col.x + (col.w - rowW) / 2 + float(pos) * (kPadW + kPadGap);
 	const float y = col.y + col.h - 14 - float(rows - row) * (kPadH + 16) + 16;
 	return { x, y, kPadW, kPadH };
 }

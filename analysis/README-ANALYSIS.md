@@ -10,10 +10,10 @@ from:
 
 | File | Machine | State |
 |---|---|---|
-| TR-505.md | TR-505 | not started |
-| TR-626.md | TR-626 | not started |
-| TR-707.md | TR-707 | not started |
-| TR-727.md | TR-727 | not started |
+| TR-505.md | TR-505 | sound ROM decoded; rates, names, firmware behaviour to measure |
+| TR-626.md | TR-626 | sound ROM decoded; rates, names, firmware behaviour to measure |
+| TR-707.md | TR-707 | sound ROMs split at their rates; firmware not at hand |
+| TR-727.md | TR-727 | firmware: I/O, MIDI buffer, note and accent tables; receive path open |
 
 Sources at hand (outside the repository, with the owner): the four sound-ROM sets of the
 TR-505, TR-626 and TR-707, the TR-727 firmware (OS v1.0), and Chris Kann's notes on the

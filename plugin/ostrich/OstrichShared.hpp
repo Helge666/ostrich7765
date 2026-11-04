@@ -20,6 +20,8 @@ enum Machine : uint32_t
 	kNumMachines
 };
 
+constexpr uint32_t kMachineCount = kNumMachines;   ///< for arithmetic with other enums
+
 constexpr const char *kMachineNames[kNumMachines] = { "TR-505", "TR-626", "TR-707", "TR-727" };
 constexpr const char *kMachineSymbols[kNumMachines] = { "tr505", "tr626", "tr707", "tr727" };
 
@@ -32,7 +34,8 @@ constexpr uint32_t kNumTabs = kNumMachines + 1;
 enum Param : uint32_t
 {
 	kParamVolume = 0,           ///< master volume, dB
-	kParamCount
+	kParamChannel,              ///< + machine: its MIDI channel, 1..16 (all start on 10)
+	kParamCount = kParamChannel + kMachineCount
 };
 
 // ---- states ------------------------------------------------------------------------------

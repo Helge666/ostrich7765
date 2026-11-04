@@ -9,7 +9,7 @@
 
 NAME = Ostrich7765
 
-FILES_DSP = OstrichPlugin.cpp
+FILES_DSP = OstrichPlugin.cpp engine/Tr707.cpp engine/Roms.cpp
 FILES_UI  = OstrichUI.cpp
 
 include ../dpf/Makefile.plugins.mk

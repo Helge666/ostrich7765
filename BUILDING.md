@@ -50,6 +50,18 @@ gcc -std=gnu11 -O2 -o plugin/tools/ostrich_clap_render plugin/tools/ostrich_clap
 plugin/tools/ostrich_clap_render plugin/bin/Ostrich7765.clap /tmp/out.wav
 ```
 
+Without ROM images the outputs stay silent. With the TR-707's four images in a folder
+(roms/README.md; `OSTRICH_ROMS` points at any folder), the default notes play its bass
+drum 2, snare 1 and closed hi-hat on channel 10:
+
+```sh
+OSTRICH_ROMS=~/my-roms plugin/tools/ostrich_clap_render plugin/bin/Ostrich7765.clap /tmp/out.wav
+```
+
+`plugin/tools/ostrich_engine_render.cpp` plays the TR-707 engine without the plugin (every
+sound at three velocities); `tools/check_tr707_render.py` checks such a render against the
+ROMs. Both are described at their top.
+
 ## 4. DPF
 
 `plugin/dpf` is our fork of DPF, [Helge666/DPF](https://github.com/Helge666/DPF), branch

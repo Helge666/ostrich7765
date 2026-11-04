@@ -17,8 +17,11 @@ public:
     static constexpr int kHalf = 24;      // taps on each side
     static constexpr int kPhases = 512;
 
-    void init(double inRate, double outRate, int channels)
+    // maxIn: the most input samples process() gets at once; the history is reserved for it,
+    // so that process() does not allocate.
+    void init(double inRate, double outRate, int channels, int maxIn = 16384)
     {
+        maxIn_ = maxIn;
         step_ = inRate / outRate;
         // Cutoff (cycles per input sample) a little below the lower Nyquist frequency.
         const double fc = 0.5 * std::fmin(1.0, outRate / inRate) * 0.92;
@@ -47,8 +50,10 @@ public:
 
     void reset()
     {
-        for (auto& h : hist_)
+        for (auto& h : hist_) {
+            h.reserve(size_t(maxIn_) + 4 * kHalf + 4);
             h.assign(kHalf, 0.0f);
+        }
         pos_ = kHalf - 1;
     }
 
@@ -112,6 +117,7 @@ private:
     }
 
     double step_ = 1.0, pos_ = 0.0;
+    int maxIn_ = 16384;
     std::vector<float> table_;
     std::vector<std::vector<float>> hist_;
 };

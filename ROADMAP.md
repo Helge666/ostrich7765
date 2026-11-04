@@ -11,9 +11,11 @@ Decisions so far:
   the panel's tabs (TR-505, TR-626, TR-707, TR-727, Settings) only choose the view.
 - Outputs: the stereo mix and 16 mono outputs, a pool shared by all machines. Each sound
   can be assigned to one of them and then leaves the mix.
-- The note mapping is still open: an octave offset per machine overlaps, since the
-  original maps span three to four octaves. To be decided once the original maps are
-  verified.
+- Note mapping (decided 2026-11-04): every machine keeps its original note map on its own
+  MIDI channel (TR-505 35-68, TR-626 35-75, TR-707 35-56, TR-727 60-74; analysis/). An
+  octave offset per machine cannot put them all on one channel, since the maps span up to
+  three and a half octaves; a one-channel layout (the machines' sounds in blocks next to
+  each other) can come later as an option.
 - Vintage timing: the timing grid of the original CPU's MIDI handling, plus CPU/MIDI
   jitter, optional (as in VPROM 3.0).
 - Version in `plugin/ostrich/Version.hpp`; a `v*` tag publishes a release, `preview-*` is
@@ -26,21 +28,21 @@ Decisions so far:
 - [x] An empty plugin that builds: VST3, CLAP, standalone; the stereo mix and 16 mono
       outputs (off until the host switches them on); the panel with its tabs; the version.
 - [x] CI: Linux and Windows on GitHub, smoke test, zips; `v*` publishes a release.
-- [ ] GitHub repository with topics; first push together with the owner.
+- [x] GitHub repository with topics; first push together with the owner.
 - [ ] DPF fork: the CLAP descriptor's version string is empty (DPF's "TODO version
       string"), and CLAP buses of a group of our own have no port type (mono outputs).
       Commits in Helge666/DPF, then a new `logan-N` tag.
 
 ## Phase 1: ROM analysis
 
-- [ ] Per machine in `analysis/`: ROM layout, sample boundaries, playback rates, decoding
-      (the TR-505's scrambled dump), known dumps and their SHA-1.
-- [ ] TR-727 firmware (REA): MIDI handling, accent, sample tables, timing. Its hardware is
-      the TR-707's; what carries over is marked as derived.
-- [ ] Measurement plan for the real TR-505 and TR-626: MIDI test files and capture
-      scripts; the owner connects one machine at a time and names the MIDI port and audio
-      input, then the recordings run without him.
-- [ ] The original MIDI note maps, verified; decide the mapping.
+- [x] Per machine in `analysis/`: ROM layout, sample boundaries, playback rates, decoding
+      (the TR-505's and TR-626's scrambled dumps), known dumps and their SHA-1.
+- [x] TR-727 firmware: MIDI handling, accent, note tables, timing (2.8 ms grid). Open: the
+      main loop's period. Its hardware is the TR-707's; what carries over is marked as
+      derived.
+- [x] TR-505 and TR-626 measured (`tools/measure/`): note maps, names, rates, velocity
+      curves, timing. Open: the bass drums' rate (+1.4 % on both).
+- [x] The original MIDI note maps, verified; mapping decided (above).
 
 ## Phase 2: sound generation
 

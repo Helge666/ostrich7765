@@ -10,8 +10,8 @@ from:
 
 | File | Machine | State |
 |---|---|---|
-| TR-505.md | TR-505 | sound ROM decoded; rates, names, firmware behaviour to measure |
-| TR-626.md | TR-626 | sound ROM decoded; rates, names, firmware behaviour to measure |
+| TR-505.md | TR-505 | sound ROM decoded; measured: note map, names, 25 kHz, velocity, timing |
+| TR-626.md | TR-626 | sound ROM decoded; measured: note map, 25 kHz, velocity, timing; names open |
 | TR-707.md | TR-707 | sound ROMs split at their rates; firmware not at hand |
 | TR-727.md | TR-727 | firmware: MIDI receive, note map, velocity to accent, 2.8 ms trigger grid; main-loop period open |
 

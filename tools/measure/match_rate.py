@@ -14,6 +14,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import tr505_rom  # noqa: E402
+import tr626_rom  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("rom")
@@ -23,8 +24,7 @@ ap.add_argument("--win", type=float, default=0.2)
 a = ap.parse_args()
 
 rom = open(a.rom, "rb").read()
-layout = tr505_rom.SOUNDS if a.machine == "505" else \
-    [(b + o, l) for b in (0, 0x20000) for o, l in tr505_rom.SOUNDS]
+layout = tr505_rom.SOUNDS if a.machine == "505" else tr626_rom.SOUNDS
 sounds = [np.frombuffer(rom[o:o + l], np.uint8).astype(float) - 128 for o, l in layout]
 
 FS = 48000

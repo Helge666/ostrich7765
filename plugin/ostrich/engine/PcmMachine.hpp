@@ -41,7 +41,8 @@ public:
     // Pitch of a sound as a factor of its rate (1 = the ROM's 25 kHz).
     void setPitch(int sound, double factor) { voices_[sound].step = factor * kSampleRate / kRate; }
 
-    // Render n internal samples into the mix (mono for now, both sides the same).
+    // Render n internal samples into the stereo mix (TR-626: mono for now, both sides
+    // the same).
     void render(int n, float* left, float* right);
 
     // The unit's own note map (measured, and the same in its manual): a sound, or -1.
@@ -54,6 +55,7 @@ private:
         double env = 1.0, decay = 1.0;   // envelope (see kTr505Tau): exp(-t / tau) per sample
         float v0 = 0.0f;
         uint32_t hold = 0, holdLeft = 0;  // internal samples before the decay starts
+        float outL = 1.0f, outR = 1.0f;   // gain at the two outputs (kTr505Out)
         double pos = 0.0, step = 0.25;
         float gain = 0.0f;
         bool playing = false;

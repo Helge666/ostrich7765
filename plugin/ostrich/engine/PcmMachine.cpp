@@ -72,6 +72,31 @@ constexpr float kTr505Tau[16] = {
     0.580f, 0.608f, 0.636f, 0.210f,   // crash, ride, open hi-hat, closed hi-hat
 };
 
+// TR-505: each sound's gain at the left and right outputs (relative to the loudest),
+// measured (tools/measure/levels.py: the owner's unit, first 30 ms against the ROM data,
+// broadband). The right output read 1.2 dB high on the sounds the service notes put on the
+// centre bus (BD, SD, congas, cowbells, clap, rim: R102 = R103); not the recorder (its two
+// inputs linked as a pair), most likely the two gangs of the volume pot VR2 on the
+// owner's unit. Taken out: the table is the nominal unit.
+constexpr float kTr505Out[16][2] = {
+    {0.469f, 0.484f},   // timbale
+    {0.872f, 0.493f},   // low tom
+    {0.483f, 0.842f},   // high tom
+    {0.873f, 0.887f},   // mid tom
+    {0.785f, 0.747f},   // bass drum
+    {0.840f, 0.818f},   // low conga
+    {1.000f, 0.916f},   // snare
+    {0.858f, 0.838f},   // high conga
+    {0.489f, 0.502f},   // hand clap
+    {0.585f, 0.599f},   // low cowbell
+    {0.508f, 0.527f},   // rim shot
+    {0.577f, 0.595f},   // high cowbell
+    {0.364f, 0.482f},   // crash
+    {0.674f, 0.441f},   // ride
+    {0.288f, 0.628f},   // open hi-hat
+    {0.281f, 0.608f},   // closed hi-hat
+};
+
 // TR-626: the closed hi-hat cuts the open one off. Not yet measured (ROADMAP.md); the
 // usual behaviour of Roland's drum machines. No envelope yet (to measure).
 int tr626Cuts(int sound) { return sound == 25 ? 10 : -1; }
@@ -88,6 +113,8 @@ PcmMachine::PcmMachine(Model model) : model_(model), numSounds_(model == kTr505 
         if (model == kTr505) {
             voices_[s].decay = std::exp(-1.0 / (double(kTr505Tau[s]) * kRate));
             voices_[s].v0 = kTr505V0;
+            voices_[s].outL = kTr505Out[s][0];
+            voices_[s].outR = kTr505Out[s][1];
             voices_[s].hold = uint32_t(kTr505Hold * kRate);
         }
         voices_[s].step = kSampleRate / kRate;
@@ -146,8 +173,8 @@ void PcmMachine::render(int n, float* left, float* right)
                 --v.holdLeft;
             else
                 v.env *= v.decay;
-            left[i] += x;
-            right[i] += x;
+            left[i] += x * v.outL;
+            right[i] += x * v.outR;
             v.pos += v.step;
         }
     }

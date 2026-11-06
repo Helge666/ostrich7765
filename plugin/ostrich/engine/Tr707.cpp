@@ -48,8 +48,13 @@ constexpr Components kTr727 = {
 // Mux voices, in the counters' order.
 enum { MV_BASS, MV_SNARE, MV_LOW_TOM, MV_MID_TOM, MV_HI_TOM, MV_HI_HAT, MV_RIMSHOT, MV_HANDCLAP };
 
-constexpr double kMuxEgC[8] = {0.047 * U, 0.047 * U, 0.047 * U, 0.047 * U, 0.047 * U, 1 * U,
-                               0.047 * U, 0.047 * U};
+// The EGs of the multiplexed voices. MAME reads 0.047 uF in the service notes (hat 1 uF), which
+// makes their decay far faster than a recording of a real unit (analysis/TR-707.md, "Against a
+// recording"): there snare, toms, cowbell, clap and tambourine follow their ROM data within 1-3 dB
+// for as long as they can be seen. Ten times that fits; the sample does the decay, the EG
+// the accent. Not checked against a board.
+constexpr double kMuxEgC[8] = {0.47 * U, 0.47 * U, 0.47 * U, 0.47 * U, 0.47 * U, 1 * U,
+                               0.47 * U, 0.47 * U};
 constexpr double kCymbalEgC[2] = {1 * U, 1 * U};
 constexpr double R79 = 100.0;   // the EGs' common charge resistor
 

@@ -52,9 +52,9 @@ its spread. Code: `vintage()` in `plugin/ostrich/OstrichPlugin.cpp`.
   phase: **22.4, 30.8, 42 and 56 ms**. The second hit fires the same voices with accent + 3
   (velocity + 6).
 - **derived:** the TR-707 the same (same board); the TR-505 and TR-626 take the same table.
-- **Ours:** a latch on a key note per machine (SETTINGS; default A0, MIDI note 21 with middle C
-  as C4; hosts that call note 60 C3 show it as A-1). A note on switches flam; the key plays
-  nothing. A start of the transport switches it off, so that playback does not depend on
-  where the last run stopped. All sounds flam, not only those of the units. Flam on: a hit
+- **Ours:** a key note per machine (SETTINGS; default A0, MIDI note 21 with middle C as C4;
+  hosts that call note 60 C3 show it as A-1). Flam is on while the key is held, from its note
+  on to its note off; the key plays nothing. Keys count before the notes of their frame. A
+  start of the transport switches it off, should a note off have got lost. All sounds flam, not only those of the units. Flam on: a hit
   at velocity - 6 where the note is, then the note at its velocity, the interval late: a
   plugin cannot play early. Parameters `<machine>_flam_key`, `_flam_interval`, `_flam_on`.

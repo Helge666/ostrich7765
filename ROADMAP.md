@@ -72,7 +72,7 @@ Decisions so far:
 - [x] The machines' own controls on their pages: the TR-626's PITCH per sound (-7..+7,
       its manual; measured: a 1.6 MHz clock over a count, the upward step per sound, 28 of 30 still to measure). The TR-707 gets no accent knob:
       over MIDI its velocity sets the accent (TR-727 firmware; TR-707.md).
-- [x] PAN per column, defaults as on the units; flam on a latching key note per machine
+- [x] PAN per column, defaults as on the units; flam while a key note is held, per machine
       (analysis/TIMING.md); the TR-707's HIGHS (TR-707.md).
 - [ ] MIDI channel per machine, the mono-output assignment, session state.
 

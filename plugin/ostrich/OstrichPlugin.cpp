@@ -446,8 +446,7 @@ protected:
 		applyLevels();
 
 		const float gain = std::pow(10.0f, m_volumeDb / 20.0f) * kTrim;
-		// A start of the transport finds flam off: playback does not depend on where the
-		// last run stopped.
+		// A start of the transport finds flam off, should a key's note off have got lost.
 		const bool rolling = getTimePosition().playing;
 		if (rolling && !m_rolling)
 			for (bool &f : m_flam)
@@ -717,15 +716,16 @@ private:
 		publishRomSet(machine, seq, msg);
 	}
 
-	// A note on of a machine's flam key switches its flam.
+	// A machine's flam is on while its flam key is held.
 	void flamKey(const MidiEvent &e)
 	{
-		if (e.size < 3 || e.size > MidiEvent::kDataSize || (e.data[0] & 0xf0) != 0x90 || e.data[2] == 0)
+		const uint8_t status = e.data[0] & 0xf0;
+		if (e.size < 3 || e.size > MidiEvent::kDataSize || (status != 0x80 && status != 0x90))
 			return;
 		const uint8_t channel = (e.data[0] & 0x0f) + 1;
 		for (uint32_t m = 0; m < kNumMachines; m ++)
 			if (channel == m_channel[m] && e.data[1] == m_flamKey[m])
-				m_flam[m] = !m_flam[m];
+				m_flam[m] = status == 0x90 && e.data[2] != 0;
 	}
 
 	// A MIDI message of this block: a note on goes into the queue for each machine on its

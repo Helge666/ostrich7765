@@ -37,8 +37,8 @@ You need your own ROM images. **This repository contains no Roland data and neve
 - **Vintage timing (per machine, on by default):** each note as late and as uneven as on
   the unit: the MIDI line, the TR-707's 2.8 ms grid, the spread measured on the TR-505 and
   TR-626 ([analysis/TIMING.md](analysis/TIMING.md)).
-- **Flam:** a key note per machine (SETTINGS, default A0) switches it on and off: each note
-  gets a softer hit before it, with the four intervals of the units.
+- **Flam:** while a key note of the machine is held (SETTINGS, default A0), each note gets a
+  softer hit before it, with the four intervals of the units.
 
 Formats: VST3, CLAP and a standalone program on Windows (64-bit); VST3, CLAP and a JACK
 standalone on Linux. No macOS build yet.

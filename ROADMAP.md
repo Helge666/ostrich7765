@@ -51,6 +51,9 @@ Decisions so far:
       share a voice cutting each other, sample-and-hold steps, resampling to the host rate.
       Against a recording of a real unit (2026-11-06, TR-707.md): hat VCA, diode band
       passes, highs done; open: the bass drum's spectrum.
+      Open, no date: an A/B with a real TR-707 on site, under equal conditions (single hits at
+      several velocities, unprocessed): HIGHS, the 0.47 uF EGs, the bass drum, soft snares.
+      The HIGHS knob may go again after that, if the unit shows it is not needed.
 - [ ] TR-505, TR-626 (with pitch), TR-727 (prepared; testable once ROMs exist). TR-505 and TR-626 play in the plugin (25 kHz, measured accent, checked against the ROMs); TR-505 hi-hats and cymbals in the sample order measured on the unit, its envelopes, levels, pan, envelope pulse and centre-bus limit (measured) and channel groups (documented); TR-626 the same, all measured: sample order as is, envelopes, eight channels, levels, pan, envelope pulse; open: the 626's pitch, both units below velocity 127.
 
 ## Phase 3: the analogue stages

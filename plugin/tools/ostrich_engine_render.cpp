@@ -11,7 +11,8 @@
     TR-707: IC34 ... IC22 are its sound ROM images (32 KiB each). `channels.wav` (optional,
     "-" for none) gets the ten mixer channels at the engine's internal 100 kHz, 32-bit
     float, for analysis. A last argument `727` plays the TR-727's board instead (with the
-    same ROMs, as there are no TR-727 dumps yet).
+    same ROMs, as there are no TR-727 dumps yet). The environment's OSTRICH_HIGHS sets
+    Tr707::setHighs.
     TR-505 / TR-626: DUMP is any known form of the sound ROM (roms/README.md); the sounds
     play in the order of their notes.
     `rate` defaults to 48000. Prints, for every hit, its time, peak and length (to -60 dB
@@ -199,6 +200,8 @@ int main(int argc, char** argv)
         const bool tr727 = argc > 8 && !std::strcmp(argv[8], "727");
         title = tr727 ? "TR-727" : "TR-707";
         tr707 = std::make_unique<Tr707>(tr727);
+        if (const char* highs = std::getenv("OSTRICH_HIGHS"))
+            tr707->setHighs(std::atof(highs));
         tr707->setRoms({voices.data(), crash.data(), ride.data()});
         tr707->reset();
         for (int s = 0; s < Tr707::kNumSounds; ++s)

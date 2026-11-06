@@ -1,8 +1,9 @@
 # Vintage timing
 
-When a note reaches a unit's sounds, and how unevenly. Ostrich 7765 plays every note at
-its frame; with VINTAGE TIMING on (per machine, SETTINGS page; the parameter
-`<machine>_timing`) it plays it when the unit would. The plugin has no way to play a note
+When a note reaches a unit's sounds, and how unevenly. With VINTAGE TIMING on (per machine,
+SETTINGS page; the parameter `<machine>_timing`; on by default since 2026-11-06, the owner
+found it closer to recordings of the units in A/B tests) Ostrich 7765 plays a note when the
+unit would; off, at its frame. The plugin has no way to play a note
 earlier than it arrives, so the unit's whole delay is added (a few milliseconds), not only
 its spread. Code: `vintage()` in `plugin/ostrich/OstrichPlugin.cpp`.
 
@@ -40,3 +41,20 @@ its spread. Code: `vintage()` in `plugin/ostrich/OstrichPlugin.cpp`.
   mean 2.4 deviations); notes never overtake each other. Since the measurement includes
   USB MIDI, the units' own spread is at most this; the share of each is not separable
   without a reference.
+
+## Flam
+
+- **documented** (owner's manuals): the TR-626 has a flam per voice and step for snares and
+  toms, interval 0-4 per pattern ("the first weakly and then the second stronger"); the
+  TR-707 on snare and toms, the TR-727 on congas and timbales, four intervals independent of
+  the tempo. The TR-505 has none. No manual mentions flam over MIDI.
+- **firmware** (TR-727 OS): the table at `FF38`, 8, 11, 15, 20, counts down in the 2.8 ms
+  phase: **22.4, 30.8, 42 and 56 ms**. The second hit fires the same voices with accent + 3
+  (velocity + 6).
+- **derived:** the TR-707 the same (same board); the TR-505 and TR-626 take the same table.
+- **Ours:** a latch on a key note per machine (SETTINGS; default A0, MIDI note 21 with middle C
+  as C4; hosts that call note 60 C3 show it as A-1). A note on switches flam; the key plays
+  nothing. A start of the transport switches it off, so that playback does not depend on
+  where the last run stopped. All sounds flam, not only those of the units. Flam on: a hit
+  at velocity - 6 where the note is, then the note at its velocity, the interval late: a
+  plugin cannot play early. Parameters `<machine>_flam_key`, `_flam_interval`, `_flam_on`.

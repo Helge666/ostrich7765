@@ -26,15 +26,19 @@ You need your own ROM images. **This repository contains no Roland data and neve
 - **Four machines in one plugin**, each on its own tab and its own MIDI channel (TR-505 10,
   TR-626 11, TR-707 12, TR-727 13; set on the SETTINGS page), all playing at the same time.
   The TR-727 is prepared but needs its sound ROMs, which have not been dumped yet.
-- **A panel per machine**: a column per group of sounds with its LEVEL and its pads (each
-  with its MIDI note; click one to hear it), and the machine's VOLUME. The TR-626 also has
-  its PITCH per sound (-7..+7, as on the unit; it sets the pad clicked last). Two looks,
-  VINTAGE (the units' beige) and DARK, chosen on the SETTINGS page.
+- **A panel per machine**: a column per group of sounds with its LEVEL, its PAN (starting
+  where the unit has it) and its pads (each with its MIDI note; click one to hear it), and
+  the machine's VOLUME. The TR-626 also has its PITCH per sound (-7..+7, as on the unit; it
+  sets the pad clicked last), the TR-707 HIGHS, from the circuit as documented to a
+  recording of a real unit ([analysis/TR-707.md](analysis/TR-707.md)). Two looks, VINTAGE
+  (the units' beige) and DARK, chosen on the SETTINGS page.
 - **16 mono outputs** besides the stereo mix: a sound assigned to one of them leaves the
   mix.
-- **Vintage timing (optional, per machine):** each note as late and as uneven as on the
-  unit: the MIDI line, the TR-707's 2.8 ms grid, the spread measured on the TR-505 and
+- **Vintage timing (per machine, on by default):** each note as late and as uneven as on
+  the unit: the MIDI line, the TR-707's 2.8 ms grid, the spread measured on the TR-505 and
   TR-626 ([analysis/TIMING.md](analysis/TIMING.md)).
+- **Flam:** a key note per machine (SETTINGS, default A0) switches it on and off: each note
+  gets a softer hit before it, with the four intervals of the units.
 
 Formats: VST3, CLAP and a standalone program on Windows (64-bit); VST3, CLAP and a JACK
 standalone on Linux. No macOS build yet.

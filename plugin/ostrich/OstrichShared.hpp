@@ -113,7 +113,12 @@ enum Param : uint32_t
 	kParamLevel = kParamMachineVolume + kMachineCount,      ///< see kLevelOffset: 0..1
 	kParamTiming = kParamLevel + 46,    ///< + machine: vintage timing, off / on
 	kParamPitch = kParamTiming + kMachineCount,    ///< + TR-626 pad (kColumns626 order): -7..+7
-	kParamCount = kParamPitch + 30
+	kParamPan = kParamPitch + 30,       ///< see kLevelOffset: -1 (left) .. +1 (right)
+	kParamFlamKey = kParamPan + 46,     ///< + machine: the note that switches flam, 0..127
+	kParamFlamInterval = kParamFlamKey + kMachineCount,   ///< + machine: 1..4 (kFlamMs)
+	kParamFlamOn = kParamFlamInterval + kMachineCount,    ///< + machine: output, flam is on
+	kParamHighs = kParamFlamOn + kMachineCount,           ///< TR-707: 0..1 (Tr707::setHighs)
+	kParamCount
 };
 
 // The TR-626's pitch parameter of pad k of column c (its pitch is set per sound).
@@ -130,12 +135,34 @@ constexpr uint32_t levelParam(uint32_t machine, uint32_t column)
 	return kParamLevel + kLevelOffset[machine] + column;
 }
 
+constexpr uint32_t panParam(uint32_t machine, uint32_t column)
+{
+	return kParamPan + kLevelOffset[machine] + column;
+}
+
+// Each column's pan as the unit has it, -1 .. +1 (the angle of its two output levels). TR-505,
+// TR-626: measured; a column's sounds differ by a little, this is their mean. TR-707, TR-727:
+// the mixer's resistors (MAME, after Roland's service notes). Column order; kLevelOffset.
+constexpr float kPanDefault[46] = {
+	0.0f, 0.0f, -0.344f, 0.0f, 0.338f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.45f, 0.176f, -0.262f,
+	0.0f, 0.0f, -0.424f, 0.0f, 0.427f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.524f, 0.238f, -0.338f,
+	0.0f, 0.0f, -0.442f, 0.0f, 0.442f, 0.0f, 0.0f, 0.442f, 0.251f, -0.442f,
+	-0.442f, 0.442f, 0.442f, -0.251f, 0.251f, 0.0f, 0.0f, 0.442f, 0.251f, -0.442f,
+};
+
+// Flam: a soft hit, then the note itself this long after it. The TR-727's four settings
+// (firmware: 8, 11, 15, 20 periods of 2.8 ms); the second hit has accent + 3, velocity + 6.
+constexpr float kFlamMs[4] = { 22.4f, 30.8f, 42.0f, 56.0f };
+constexpr int kFlamSoftBy = 6;
+constexpr uint8_t kDefaultFlamKey = 21;     // A0
+constexpr int kDefaultFlamInterval = 2;
+
 static_assert(kLevelOffset[1] - kLevelOffset[0] == kColumns[0].count
               && kLevelOffset[2] - kLevelOffset[1] == kColumns[1].count
               && kLevelOffset[3] - kLevelOffset[2] == kColumns[2].count
               && kLevelOffset[4] - kLevelOffset[3] == kColumns[3].count
               && kParamTiming == kParamLevel + kLevelOffset[4], "a level per column");
-static_assert(pitchParam(13, 0) == kParamCount, "a pitch per TR-626 sound");
+static_assert(pitchParam(13, 0) == kParamPan, "a pitch per TR-626 sound");
 
 // Each machine starts on a channel of its own, so that all can play at once (the units
 // themselves all start on 10).

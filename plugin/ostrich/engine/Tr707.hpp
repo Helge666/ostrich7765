@@ -60,6 +60,12 @@ public:
     void render(int n, float* left, float* right, float* const* channels);
 
     void setLevel(int channel, double gain) { level_[channel] = gain; }
+    // A pan of our own per channel: an offset from the machine's own, the whole way from left
+    // to right being 2. The two sides keep their power.
+    void setPan(int channel, double offset);
+    // How much of the highs that the recording of a real unit has over the circuit as
+    // documented (analysis/TR-707.md, "Highs"): 0 = none, 1 = all.
+    void setHighs(double amount) { highs_ = amount; }
     void setInMix(int channel, bool inMix) { inMix_[channel] = inMix; }
     void setMasterVolume(double gain) { master_ = gain; }
 
@@ -68,7 +74,7 @@ public:
     static int noteToSound(bool tr727, int note);
 
 private:
-    enum { kMux = 8, kCymbals = 2 };
+    enum { kMux = 8, kCymbals = 2, kNumDiodeChannels = 5 };   // bass, snare and the toms
 
     void tick();
     void fire();
@@ -108,13 +114,16 @@ private:
     RcFilter hatHpf_;
     std::array<RcFilter, kCymbals> cymHpf_;
     std::array<Biquad, kNumChannels> bpf_;
+    std::array<DiodeBandpass, kNumDiodeChannels> diodeBpf_;
     std::array<double, kNumChannels> bpfGain_{};
     std::array<RcFilter, kNumChannels> lpf_;
-    std::array<double, kNumChannels> mixL_{}, mixR_{};
+    std::array<double, kNumChannels> mixL_{}, mixR_{}, panL_{}, panR_{}, panOffset_{};
     std::array<double, kNumChannels> level_{};
     std::array<bool, kNumChannels> inMix_{};
     RcFilter dcL_, dcR_;
     Biquad outL_, outR_;
+    Shelf highsL_, highsR_;
+    double highs_ = 1.0;
     double master_ = 0.5;
     double muxScale_ = 0.0;
     std::array<double, kMux> muxEgR_{};

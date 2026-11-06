@@ -49,6 +49,8 @@ Decisions so far:
 - [ ] TR-707 first (best documented; engine checked against the ROMs, by ear, and playing in the plugin's mix on its MIDI channel, heard right in the owner's DAW on Windows, 2026-11-04; mono outputs open): playback at the original rates, 8-bit multiplying
       DAC with accent, 6-bit DACs for crash and ride, the closed hi-hat's VCA, sounds that
       share a voice cutting each other, sample-and-hold steps, resampling to the host rate.
+      Against a recording of a real unit (2026-11-06, TR-707.md): hat VCA, diode band
+      passes, highs done; open: the bass drum's spectrum.
 - [ ] TR-505, TR-626 (with pitch), TR-727 (prepared; testable once ROMs exist). TR-505 and TR-626 play in the plugin (25 kHz, measured accent, checked against the ROMs); TR-505 hi-hats and cymbals in the sample order measured on the unit, its envelopes, levels, pan, envelope pulse and centre-bus limit (measured) and channel groups (documented); TR-626 the same, all measured: sample order as is, envelopes, eight channels, levels, pan, envelope pulse; open: the 626's pitch, both units below velocity 127.
 
 ## Phase 3: the analogue stages
@@ -70,13 +72,16 @@ Decisions so far:
 - [x] The machines' own controls on their pages: the TR-626's PITCH per sound (-7..+7,
       its manual; measured: a 1.6 MHz clock over a count, the upward step per sound, 28 of 30 still to measure). The TR-707 gets no accent knob:
       over MIDI its velocity sets the accent (TR-727 firmware; TR-707.md).
+- [x] PAN per column, defaults as on the units; flam on a latching key note per machine
+      (analysis/TIMING.md); the TR-707's HIGHS (TR-707.md).
 - [ ] MIDI channel per machine, the mono-output assignment, session state.
 
 ## Phase 5: vintage timing
 
 - [x] Grid and spread per machine from the firmware and the measurements, plus the MIDI
       line; switchable per machine (analysis/TIMING.md). VPROM 3.0 itself was not looked
-      into. Open: the TR-707/727 main loop's period.
+      into. On by default (the owner's A/B tests against recordings). Open: the TR-707/727
+      main loop's period.
 
 ## Phase 6: release 0.1.0
 

@@ -64,6 +64,20 @@ double muxDacV(double vEg, int data)
     return vIn - (R147 + R148) * iOut - VBE - VBE;
 }
 
+// The hat's single-transistor VCA, measured (a recording of a real unit over the ROM, about
+// 600 hits; analysis/TR-707.md, "Hi-hat"): its gain saturates, x / (1 + x) of the EG voltage
+// over a knee. The open hat, on the slow EG, stays near full gain for all of its sample; the
+// closed hat falls only once its EG nears the knee, after some 30 ms. 1 at the EG's top.
+constexpr double kHatKnee = 0.18;   // volts
+double hatVca(double vEg)
+{
+    return vEg / (vEg + kHatKnee) * (VCC + kHatKnee) / VCC;
+}
+
+// The highs of that recording over the circuit as documented, at the mix: a zero at
+// kHighsZero, a pole at kHighsPole (fit, analysis/TR-707.md, "Highs").
+constexpr double kHighsZero = 3500.0, kHighsPole = 40000.0;
+
 struct SoundWiring {
     int trigger;      // trigger bit
     int select;       // 0 none, 1 bass, 2 snare, 3 rim/cow, 4 clap/tamb, 5 hat
@@ -138,13 +152,14 @@ Tr707::Tr707(bool tr727) : tr727_(tr727)
     muxScale_ = -(vpp / 2.0) / VCC;
 
     // Band passes before the level sliders: {R1, R2, C1, C2}. Bass, snare and toms have a
-    // diode path parallel to R1 (amplitude dependent, not modelled: high-amplitude case).
+    // diode path parallel to R1 (kDiodeR).
+    const double kDiodeR[kNumDiodeChannels] = {c.R255, c.R256, 4.7 * K, 4.7 * K, 4.7 * K};
     const double bpf[kNumChannels][4] = {
-        {parallel(c.R255, 22 * K), 33 * K, c.C213, 1 * U},
-        {parallel(c.R256, 22 * K), c.R233, c.C216, 1 * U},
-        {parallel(4.7 * K, 22 * K), 47 * K, 0.01 * U, 1 * U},
-        {parallel(4.7 * K, 22 * K), c.R237, c.C220, 1 * U},
-        {parallel(4.7 * K, 22 * K), c.R242, c.C221, c.C222},
+        {22 * K, 33 * K, c.C213, 1 * U},
+        {22 * K, c.R233, c.C216, 1 * U},
+        {22 * K, 47 * K, 0.01 * U, 1 * U},
+        {22 * K, c.R237, c.C220, 1 * U},
+        {22 * K, c.R242, c.C221, c.C222},
         {22 * K, 47 * K, 470 * P, 0.01 * U},
         {22 * K, c.R246, 470 * P, c.C226},
         {22 * K, 22 * K, 470 * P, 0.01 * U},
@@ -157,11 +172,15 @@ Tr707::Tr707(bool tr727) : tr727_(tr727)
                                          33 * K, 33 * K, 22 * K, 22 * K, 47 * K};
     constexpr double kMaxMaster = 50 * K, kMaxChannel = 50 * K;
     for (int i = 0; i < kNumChannels; ++i) {
-        bpf_[i].rcCcBandpass(kRate, bpf[i][0], bpf[i][1], bpf[i][2], bpf[i][3]);
+        if (i < kNumDiodeChannels)
+            diodeBpf_[i].init(kRate, bpf[i][0], kDiodeR[i], bpf[i][1], bpf[i][2], bpf[i][3]);
+        else
+            bpf_[i].rcCcBandpass(kRate, bpf[i][0], bpf[i][1], bpf[i][2], bpf[i][3]);
         bpfGain_[i] = -kMaxChannel / bpf[i][1];          // inverting op-amp
         lpf_[i].init(kRate, RcFilter::kLowpass, 1 * K, 0.01 * U);   // ~15.9 kHz
         mixL_[i] = -kMaxMaster / rLeft[i];
         mixR_[i] = -kMaxMaster / rRight[i];
+        panL_[i] = panR_[i] = 1.0;
         level_[i] = 1.0;
         inMix_[i] = true;
     }
@@ -171,7 +190,20 @@ Tr707::Tr707(bool tr727) : tr727_(tr727)
     // Output band passes, about 0.35 Hz to 12.4 kHz.
     outL_.rcRrBandpass(kRate, 1 * K, 47 * K, 10 * U, 0.01 * U);
     outR_.rcRrBandpass(kRate, 1 * K, 47 * K, 10 * U, 0.01 * U);
+    highsL_.init(kRate, kHighsZero, kHighsPole);
+    highsR_.init(kRate, kHighsZero, kHighsPole);
     reset();
+}
+
+void Tr707::setPan(int channel, double offset)
+{
+    if (offset == panOffset_[channel])
+        return;
+    panOffset_[channel] = offset;
+    const double a0 = std::atan2(std::fabs(mixR_[channel]), std::fabs(mixL_[channel]));
+    const double a = std::clamp(a0 + offset * kPi / 4.0, 0.0, kPi / 2.0);
+    panL_[channel] = std::cos(a) / std::cos(a0);
+    panR_[channel] = std::sin(a) / std::sin(a0);
 }
 
 void Tr707::reset()
@@ -198,6 +230,9 @@ void Tr707::reset()
     hatHpf_.reset();
     for (auto& f : cymHpf_) f.reset();
     for (auto& f : bpf_) f.reset();
+    for (auto& f : diodeBpf_) f.reset();
+    highsL_.reset();
+    highsR_.reset();
     for (auto& f : lpf_) f.reset();
     dcL_.reset();
     dcR_.reset();
@@ -412,7 +447,7 @@ void Tr707::render(int n, float* left, float* right, float* const* channels)
         }
         hatEg_.step();
         const double hat = hatHpf_.step(mux[MV_HI_HAT] * HAT_HPF_SCALE) * HAT_VCA_SCALE *
-                           (hatEg_.v() / VCC);
+                           hatVca(hatEg_.v());
         double cymb[kCymbals];
         for (int i = 0; i < kCymbals; ++i) {
             const double dac = VCC * cymDac_[i] / 64.0;
@@ -432,16 +467,19 @@ void Tr707::render(int n, float* left, float* right, float* const* channels)
 
         double l = 0.0, r = 0.0;
         for (int i = 0; i < kNumChannels; ++i) {
-            const double x = lpf_[i].step(bpf_[i].step(v[i]) * bpfGain_[i] * level_[i]);
+            const double band = i < kNumDiodeChannels ? diodeBpf_[i].step(v[i]) : bpf_[i].step(v[i]);
+            const double x = lpf_[i].step(band * bpfGain_[i] * level_[i]);
             if (channels)
                 channels[i][s] = float(x * kVoltsToAudio);
             if (inMix_[i]) {
-                l += x * mixL_[i];
-                r += x * mixR_[i];
+                l += x * mixL_[i] * panL_[i];
+                r += x * mixR_[i] * panR_[i];
             }
         }
         l = outL_.step(dcL_.step(l) * master_);
         r = outR_.step(dcR_.step(r) * master_);
+        l = highsL_.step(l, highs_);
+        r = highsR_.step(r, highs_);
         left[s] = float(l * kVoltsToAudio);
         right[s] = float(r * kVoltsToAudio);
     }

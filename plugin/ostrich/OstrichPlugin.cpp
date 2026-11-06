@@ -43,6 +43,13 @@ public:
 			m_channel[m] = kDefaultChannel[m];
 		for (float &l : m_level)
 			l = 1.0f;
+		std::copy(std::begin(kPanDefault), std::end(kPanDefault), m_pan);
+		for (uint32_t m = 0; m < kNumMachines; m ++)
+		{
+			m_timing[m] = true;
+			m_flamKey[m] = kDefaultFlamKey;
+			m_flamInterval[m] = kDefaultFlamInterval;
+		}
 		m_roms.scan();
 		Engines e;
 		buildEngines(m_roms, e);
@@ -136,11 +143,11 @@ protected:
 			p.name = String(kMachineNames[m]) + " vintage timing";
 			p.shortName = "Timing";
 			p.symbol = String(kMachineSymbols[m]) + "_timing";
-			p.ranges.def = 0.0f;
+			p.ranges.def = 1.0f;
 			p.ranges.min = 0.0f;
 			p.ranges.max = 1.0f;
 		}
-		else if (index >= kParamPitch && index < kParamCount)
+		else if (index >= kParamPitch && index < kParamPan)
 		{
 			const Pad &pad = pitchPad(index - kParamPitch);
 			std::string symbol;
@@ -153,6 +160,67 @@ protected:
 			p.ranges.def = 0.0f;
 			p.ranges.min = -7.0f;
 			p.ranges.max = 7.0f;
+		}
+		else if (index >= kParamPan && index < kParamFlamKey)
+		{
+			uint32_t m = 0;
+			while (index >= kParamPan + kLevelOffset[m + 1])
+				m ++;
+			const uint32_t c = index - kParamPan - kLevelOffset[m];
+			std::string title = kColumns[m].columns[c].title, symbol;
+			std::replace(title.begin(), title.end(), '\n', ' ');
+			for (char ch : title)
+				symbol += std::isalnum(static_cast<unsigned char>(ch)) ? char(std::tolower(static_cast<unsigned char>(ch))) : '_';
+			p.hints = kParameterIsAutomatable;
+			p.name = String(kMachineNames[m]) + " " + String(title.c_str()) + " pan";
+			p.shortName = String(title.c_str()) + " pan";
+			p.symbol = String(kMachineSymbols[m]) + "_" + String(symbol.c_str()) + "_pan";
+			p.ranges.def = kPanDefault[index - kParamPan];
+			p.ranges.min = -1.0f;
+			p.ranges.max = 1.0f;
+		}
+		else if (index >= kParamFlamKey && index < kParamFlamInterval)
+		{
+			const uint32_t m = index - kParamFlamKey;
+			p.hints = kParameterIsInteger;
+			p.name = String(kMachineNames[m]) + " flam key";
+			p.shortName = "Flam key";
+			p.symbol = String(kMachineSymbols[m]) + "_flam_key";
+			p.ranges.def = float(kDefaultFlamKey);
+			p.ranges.min = 0.0f;
+			p.ranges.max = 127.0f;
+		}
+		else if (index >= kParamFlamInterval && index < kParamFlamOn)
+		{
+			const uint32_t m = index - kParamFlamInterval;
+			p.hints = kParameterIsAutomatable | kParameterIsInteger;
+			p.name = String(kMachineNames[m]) + " flam interval";
+			p.shortName = "Flam";
+			p.symbol = String(kMachineSymbols[m]) + "_flam_interval";
+			p.ranges.def = float(kDefaultFlamInterval);
+			p.ranges.min = 1.0f;
+			p.ranges.max = 4.0f;
+		}
+		else if (index >= kParamFlamOn && index < kParamHighs)
+		{
+			const uint32_t m = index - kParamFlamOn;
+			p.hints = kParameterIsOutput | kParameterIsBoolean | kParameterIsInteger;
+			p.name = String(kMachineNames[m]) + " flam on";
+			p.shortName = "Flam on";
+			p.symbol = String(kMachineSymbols[m]) + "_flam_on";
+			p.ranges.def = 0.0f;
+			p.ranges.min = 0.0f;
+			p.ranges.max = 1.0f;
+		}
+		else if (index == kParamHighs)
+		{
+			p.hints = kParameterIsAutomatable;
+			p.name = "TR-707 highs";
+			p.shortName = "Highs";
+			p.symbol = "tr707_highs";
+			p.ranges.def = 1.0f;
+			p.ranges.min = 0.0f;
+			p.ranges.max = 1.0f;
 		}
 	}
 
@@ -179,8 +247,18 @@ protected:
 			return m_level[index - kParamLevel];
 		if (index >= kParamTiming && index < kParamTiming + kMachineCount)
 			return m_timing[index - kParamTiming] ? 1.0f : 0.0f;
-		if (index >= kParamPitch && index < kParamCount)
+		if (index >= kParamPitch && index < kParamPan)
 			return float(m_pitch[index - kParamPitch]);
+		if (index >= kParamPan && index < kParamFlamKey)
+			return m_pan[index - kParamPan];
+		if (index >= kParamFlamKey && index < kParamFlamInterval)
+			return float(m_flamKey[index - kParamFlamKey]);
+		if (index >= kParamFlamInterval && index < kParamFlamOn)
+			return float(m_flamInterval[index - kParamFlamInterval]);
+		if (index >= kParamFlamOn && index < kParamHighs)
+			return m_flam[index - kParamFlamOn] ? 1.0f : 0.0f;
+		if (index == kParamHighs)
+			return m_highs;
 		return 0.0f;
 	}
 
@@ -196,8 +274,16 @@ protected:
 			m_level[index - kParamLevel] = std::clamp(value, 0.0f, 1.0f);
 		else if (index >= kParamTiming && index < kParamTiming + kMachineCount)
 			m_timing[index - kParamTiming] = value > 0.5f;
-		else if (index >= kParamPitch && index < kParamCount)
+		else if (index >= kParamPitch && index < kParamPan)
 			m_pitch[index - kParamPitch] = std::clamp(int(std::lround(value)), -7, 7);
+		else if (index >= kParamPan && index < kParamFlamKey)
+			m_pan[index - kParamPan] = std::clamp(value, -1.0f, 1.0f);
+		else if (index >= kParamFlamKey && index < kParamFlamInterval)
+			m_flamKey[index - kParamFlamKey] = std::clamp(int(std::lround(value)), 0, 127);
+		else if (index >= kParamFlamInterval && index < kParamFlamOn)
+			m_flamInterval[index - kParamFlamInterval] = std::clamp(int(std::lround(value)), 1, 4);
+		else if (index == kParamHighs)
+			m_highs = std::clamp(value, 0.0f, 1.0f);
 	}
 
 	// ---- outputs -------------------------------------------------------------------------
@@ -329,7 +415,10 @@ protected:
 				p->reset();
 		m_numPending = 0;
 		for (uint32_t m = 0; m < kNumMachines; m ++)
+		{
 			m_lineFree[m] = m_lastFire[m] = 0.0;
+			m_flam[m] = false;
+		}
 		m_clock = 0;
 	}
 
@@ -357,10 +446,26 @@ protected:
 		applyLevels();
 
 		const float gain = std::pow(10.0f, m_volumeDb / 20.0f) * kTrim;
+		// A start of the transport finds flam off: playback does not depend on where the
+		// last run stopped.
+		const bool rolling = getTimePosition().playing;
+		if (rolling && !m_rolling)
+			for (bool &f : m_flam)
+				f = false;
+		m_rolling = rolling;
 		// The block's notes into the queue, each with the frame it starts at: its own, or
-		// with vintage timing as late as the unit would play it.
-		for (uint32_t ev = 0; ev < eventCount; ev ++)
-			midi(events[ev]);
+		// with vintage timing as late as the unit would play it. The flam keys of a frame
+		// count before its notes.
+		for (uint32_t ev = 0; ev < eventCount;)
+		{
+			uint32_t end = ev;
+			while (end < eventCount && events[end].frame == events[ev].frame)
+				end ++;
+			for (uint32_t i = ev; i < end; i ++)
+				flamKey(events[i]);
+			for (; ev < end; ev ++)
+				midi(events[ev]);
+		}
 		uint32_t pos = 0;
 		while (pos < frames)
 		{
@@ -413,8 +518,9 @@ private:
 	// The longest piece run() renders at once, in host frames.
 	static constexpr uint32_t kMaxSegment = 128;
 	// Every machine's level in the mix, -6 dB: the TR-707 (MAME's output stage) peaks at
-	// about +1.3 dBFS for a bass drum at velocity 127, the TR-505's and TR-626's full-scale
-	// samples at up to +2.5 dBFS after the resampler. Leaves room for several sounds at once.
+	// about +1.3 dBFS for a bass drum at velocity 127 (with HIGHS at 100 % the hats at about
+	// +7 dBFS), the TR-505's and TR-626's full-scale samples at up to +2.5 dBFS after the
+	// resampler. Leaves room for several sounds at once.
 	static constexpr float kTrim = 0.5f;
 
 	struct Slot
@@ -434,15 +540,22 @@ private:
 	void applyLevels()
 	{
 		if (m_pcm[kTR626])
-			for (uint32_t i = 0; i < kParamCount - kParamPitch; i ++)
+			for (uint32_t i = 0; i < kParamPan - kParamPitch; i ++)
 			{
 				const int sound = PcmMachine::noteToSound(PcmMachine::kTr626, pitchPad(i).note);
 				if (sound >= 0)
 					m_pcm[kTR626]->setPitch(sound, PcmMachine::tr626PitchFactor(sound, m_pitch[i]));
 			}
 		if (m_tr707)
+		{
+			m_tr707->setHighs(m_highs);
 			for (uint32_t c = 0; c < kColumns[kTR707].count; c ++)
-				m_tr707->setLevel(int(c), m_level[kLevelOffset[kTR707] + c]);
+			{
+				const uint32_t i = kLevelOffset[kTR707] + c;
+				m_tr707->setLevel(int(c), m_level[i]);
+				m_tr707->setPan(int(c), double(m_pan[i]) - double(kPanDefault[i]));
+			}
+		}
 		for (uint32_t m : { uint32_t(kTR505), uint32_t(kTR626) })
 		{
 			if (!m_pcm[m])
@@ -453,8 +566,11 @@ private:
 				for (uint32_t k = 0; k < col.numPads; k ++)
 				{
 					const int sound = PcmMachine::noteToSound(m_pcm[m]->model(), col.pads[k].note);
-					if (sound >= 0)
-						m_pcm[m]->setLevel(sound, m_level[kLevelOffset[m] + c]);
+					if (sound < 0)
+						continue;
+					const uint32_t i = kLevelOffset[m] + c;
+					m_pcm[m]->setLevel(sound, m_level[i]);
+					m_pcm[m]->setPan(sound, double(m_pan[i]) - double(kPanDefault[i]));
 				}
 			}
 		}
@@ -601,8 +717,20 @@ private:
 		publishRomSet(machine, seq, msg);
 	}
 
+	// A note on of a machine's flam key switches its flam.
+	void flamKey(const MidiEvent &e)
+	{
+		if (e.size < 3 || e.size > MidiEvent::kDataSize || (e.data[0] & 0xf0) != 0x90 || e.data[2] == 0)
+			return;
+		const uint8_t channel = (e.data[0] & 0x0f) + 1;
+		for (uint32_t m = 0; m < kNumMachines; m ++)
+			if (channel == m_channel[m] && e.data[1] == m_flamKey[m])
+				m_flam[m] = !m_flam[m];
+	}
+
 	// A MIDI message of this block: a note on goes into the queue for each machine on its
-	// channel, at its frame or, with vintage timing, when the unit would play it.
+	// channel, at its frame or, with vintage timing, when the unit would play it. With flam
+	// on, a softer hit goes first: the note keeps its velocity and comes the interval late.
 	void midi(const MidiEvent &e)
 	{
 		if (e.size < 2 || e.size > MidiEvent::kDataSize || e.data[0] < 0x80 || e.data[0] >= 0xf0)
@@ -620,9 +748,21 @@ private:
 			double at = double(m_clock + e.frame);
 			if (m_timing[m])
 				at = vintage(m, at, on, e.size);
-			if (on && m_numPending < kMaxPending)
-				m_pending[m_numPending ++] = { uint64_t(std::ceil(at)), uint8_t(m), note, velocity };
+			if (!on || note == m_flamKey[m])
+				continue;
+			if (m_flam[m])
+			{
+				push(at, m, note, uint8_t(std::max(1, int(velocity) - kFlamSoftBy)));
+				at += getSampleRate() * double(kFlamMs[m_flamInterval[m] - 1]) / 1000.0;
+			}
+			push(at, m, note, velocity);
 		}
+	}
+
+	void push(double at, uint32_t m, uint8_t note, uint8_t velocity)
+	{
+		if (m_numPending < kMaxPending)
+			m_pending[m_numPending ++] = { uint64_t(std::ceil(at)), uint8_t(m), note, velocity };
 	}
 
 	void play(uint32_t m, uint8_t note, uint8_t velocity)
@@ -685,7 +825,12 @@ private:
 	float m_machineVolumeDb[kNumMachines] = {};
 	float m_level[kLevelOffset[kNumMachines]];
 	bool m_timing[kNumMachines] = {};
-	int m_pitch[kParamCount - kParamPitch] = {};
+	int m_pitch[kParamPan - kParamPitch] = {};
+	float m_pan[kLevelOffset[kNumMachines]];
+	int m_flamKey[kNumMachines], m_flamInterval[kNumMachines];
+	bool m_flam[kNumMachines] = {};
+	bool m_rolling = false;
+	float m_highs = 1.0f;
 
 	// Notes waiting for their frame (vintage timing, or later in the block).
 	struct Pending { uint64_t at; uint8_t machine, note, velocity; };

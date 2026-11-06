@@ -26,6 +26,7 @@
 // path, a state message directly.
 #define DISTRHO_PLUGIN_WANT_STATE       1
 #define DISTRHO_PLUGIN_WANT_FULL_STATE  1
+#define DISTRHO_PLUGIN_WANT_TIMEPOS     1     // transport start: flam goes off
 
 #define DISTRHO_UI_USE_NANOVG           1
 // Design units = these pixels at 100 %.  Both sides divisible by 4, so that every Windows

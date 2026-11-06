@@ -19,6 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 START_NAMESPACE_DISTRHO
@@ -131,8 +132,9 @@ void saveLook(int look)
 // ---- a machine's page: the columns ---------------------------------------------------------
 
 constexpr float kColGap = 6, kColTop = kBodyY + 36, kColBottom = kBodyY + 410;
-constexpr float kKnobR = 22, kKnobDy = 84;
-constexpr float kPitchR = 16, kPitchDy = 192;     // the TR-626's PITCH, below the LEVEL
+constexpr float kKnobR = 22, kKnobDy = 72;
+constexpr float kPanR = 14, kPanDy = 148;         // PAN (TR-707: HIGHS in the VOLUME column)
+constexpr float kPitchR = 14, kPitchDy = 210;     // the TR-626's PITCH
 constexpr float kPadW = 34, kPadH = 40, kPadGap = 5;
 
 // Column c of a machine's n columns; c == n is its VOLUME.
@@ -204,7 +206,12 @@ constexpr float kChanBtn = 28, kChanBoxW = 56;
 inline Rect chanMinus(uint32_t m) { return { kChanX + 150, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
 inline Rect chanBox(uint32_t m) { return { kChanX + 150 + kChanBtn + 6, kChanY + m * kChanRowH, kChanBoxW, kChanBtn }; }
 inline Rect chanPlus(uint32_t m) { return { kChanX + 150 + kChanBtn + 12 + kChanBoxW, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
-inline Rect timingButton(uint32_t m) { return { kChanX + 430, kChanY + m * kChanRowH, 150, kChanBtn }; }
+inline Rect timingButton(uint32_t m) { return { kChanX + 330, kChanY + m * kChanRowH, 150, kChanBtn }; }
+// A stepper further right: - , the value, +.
+constexpr float kFlamKeyX = 520, kFlamIntX = 680, kFlamLampX = 836;
+inline Rect stepMinus(float x, uint32_t m) { return { kChanX + x, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
+inline Rect stepBox(float x, uint32_t m) { return { kChanX + x + kChanBtn + 6, kChanY + m * kChanRowH, kChanBoxW, kChanBtn }; }
+inline Rect stepPlus(float x, uint32_t m) { return { kChanX + x + kChanBtn + 12 + kChanBoxW, kChanY + m * kChanRowH, kChanBtn, kChanBtn }; }
 const float kLookY = kChanY + 4 * kChanRowH + 78;
 inline Rect lookButton(int look) { return { kChanX + 150 + float(look) * 118, kLookY, 110, 28 }; }
 
@@ -225,9 +232,15 @@ public:
 		for (float &v : m_value)
 			v = 1.0f;
 		for (uint32_t m = 0; m < kNumMachines; m ++)
-			m_value[kParamMachineVolume + m] = m_value[kParamTiming + m] = 0.0f;
-		for (uint32_t p = kParamPitch; p < kParamCount; p ++)
+		{
+			m_value[kParamMachineVolume + m] = m_value[kParamFlamOn + m] = 0.0f;
+			m_value[kParamFlamKey + m] = float(kDefaultFlamKey);
+			m_value[kParamFlamInterval + m] = float(kDefaultFlamInterval);
+		}
+		for (uint32_t p = kParamPitch; p < kParamPan; p ++)
 			m_value[p] = 0.0f;
+		for (uint32_t p = kParamPan; p < kParamFlamKey; p ++)
+			m_value[p] = kPanDefault[p - kParamPan];
 		m_value[kParamVolume] = 0.0f;
 		m_romFile.resize(kNumRomImagesUi);
 		m_look = loadLook();
@@ -254,8 +267,13 @@ protected:
 		if (m_tab == kTabSettings)
 		{
 			for (uint32_t m = 0; m < kNumMachines; m ++)
+			{
 				if (chanBox(m).contains(x, y) || chanMinus(m).contains(x, y) || chanPlus(m).contains(x, y))
 					return changeChannel(m, dir), true;
+				for (const auto &[sx, p] : { std::pair(kFlamKeyX, kParamFlamKey + m), std::pair(kFlamIntX, kParamFlamInterval + m) })
+					if (stepBox(sx, m).contains(x, y) || stepMinus(sx, m).contains(x, y) || stepPlus(sx, m).contains(x, y))
+						return setValue(p, m_value[p] + float(dir), true), true;
+			}
 			return false;
 		}
 		const int p = knobAt(x, y);
@@ -327,6 +345,13 @@ protected:
 					return changeChannel(m, 1), true;
 				if (m != kTR727 && timingButton(m).contains(x, y))
 					return setValue(kParamTiming + m, m_value[kParamTiming + m] > 0.5f ? 0.0f : 1.0f, true), true;
+				for (const auto &[sx, p] : { std::pair(kFlamKeyX, kParamFlamKey + m), std::pair(kFlamIntX, kParamFlamInterval + m) })
+				{
+					if (stepMinus(sx, m).contains(x, y))
+						return setValue(p, m_value[p] - 1.0f, true), true;
+					if (stepPlus(sx, m).contains(x, y))
+						return setValue(p, m_value[p] + 1.0f, true), true;
+				}
 			}
 			for (int look : { kLookVintage, kLookDark })
 				if (lookButton(look).contains(x, y))
@@ -466,11 +491,23 @@ private:
 	{
 		return p == kParamVolume || (p >= kParamMachineVolume && p < kParamMachineVolume + kMachineCount);
 	}
-	static bool isPitch(uint32_t p) { return p >= kParamPitch && p < kParamCount; }
+	static bool isPitch(uint32_t p) { return p >= kParamPitch && p < kParamPan; }
+	static bool isPan(uint32_t p) { return p >= kParamPan && p < kParamFlamKey; }
+	static bool isFlamKey(uint32_t p) { return p >= kParamFlamKey && p < kParamFlamInterval; }
+	static bool isFlamInterval(uint32_t p) { return p >= kParamFlamInterval && p < kParamFlamOn; }
 	static bool isSwitch(uint32_t p) { return p >= kParamTiming && p < kParamTiming + kMachineCount; }
-	static float rangeMin(uint32_t p) { return isVolume(p) ? -40.0f : isPitch(p) ? -7.0f : 0.0f; }
-	static float rangeMax(uint32_t p) { return isVolume(p) ? 6.0f : isPitch(p) ? 7.0f : 1.0f; }
-	static float defaultOf(uint32_t p) { return isVolume(p) || isPitch(p) || isSwitch(p) ? 0.0f : 1.0f; }
+	static float rangeMin(uint32_t p)
+	{
+		return isVolume(p) ? -40.0f : isPitch(p) ? -7.0f : isPan(p) ? -1.0f : isFlamInterval(p) ? 1.0f : 0.0f;
+	}
+	static float rangeMax(uint32_t p)
+	{
+		return isVolume(p) ? 6.0f : isPitch(p) ? 7.0f : isFlamKey(p) ? 127.0f : isFlamInterval(p) ? 4.0f : 1.0f;
+	}
+	static float defaultOf(uint32_t p)
+	{
+		return isPan(p) ? kPanDefault[p - kParamPan] : isVolume(p) || isPitch(p) ? 0.0f : 1.0f;
+	}
 	static float step(uint32_t p) { return isVolume(p) || isPitch(p) ? 1.0f : 0.02f; }
 
 	// The knob's position, 0..1.
@@ -484,7 +521,7 @@ private:
 		v = std::max(rangeMin(p), std::min(rangeMax(p), v));
 		if (isVolume(p))
 			v = std::round(v * 2.0f) / 2.0f;     // half dB steps
-		else if (isPitch(p) || isSwitch(p))
+		else if (isPitch(p) || isSwitch(p) || isFlamKey(p) || isFlamInterval(p))
 			v = std::round(v);
 		if (v == m_value[p])
 			return;
@@ -509,6 +546,14 @@ private:
 			const float dx = x - knobX(r), dy = y - knobY(r);
 			if (dx * dx + dy * dy <= (kKnobR + 8) * (kKnobR + 8))
 				return int(c == n ? kParamMachineVolume + m : levelParam(m, c));
+			const float ny = y - (r.y + kPanDy);
+			if (dx * dx + ny * ny <= (kPanR + 8) * (kPanR + 8))
+			{
+				if (c < n)
+					return int(panParam(m, c));
+				if (m == kTR707)
+					return int(kParamHighs);
+			}
 			const float py = y - (r.y + kPitchDy);
 			if (m == kTR626 && c < n && dx * dx + py * py <= (kPitchR + 8) * (kPitchR + 8))
 				return int(pitchParam(c, m_selected[m][c]));
@@ -707,9 +752,39 @@ private:
 			textAlign(ALIGN_CENTER | ALIGN_BASELINE);
 			fontSize(10.5f);
 			fillColor(p == uint32_t(m_drag) ? th.ink : th.inkDim);
-			text(knobX(r), knobY(r) + kKnobR + 22, label, nullptr);
+			text(knobX(r), knobY(r) + kKnobR + 18, label, nullptr);
 			if (volume)
+			{
+				if (m == kTR707)
+				{
+					const float hy = r.y + kPanDy;
+					const bool drag = kParamHighs == uint32_t(m_drag);
+					drawKnob(knobX(r), hy, position(kParamHighs), th.inkDim, drag, kPanR);
+					std::snprintf(label, sizeof(label), drag ? "%.0f %%" : "HIGHS", double(m_value[kParamHighs] * 100));
+					fontSize(10.5f);
+					fillColor(drag ? th.ink : th.inkDim);
+					text(knobX(r), hy + kPanR + 18, label, nullptr);
+				}
 				continue;
+			}
+
+			// PAN.
+			{
+				const uint32_t pp = panParam(m, c);
+				const float py = r.y + kPanDy;
+				const bool drag = pp == uint32_t(m_drag);
+				drawKnob(knobX(r), py, position(pp), colour, drag, kPanR, true);
+				const int v = int(std::lround(m_value[pp] * 100));
+				if (!drag)
+					std::snprintf(label, sizeof(label), "PAN");
+				else if (v == 0)
+					std::snprintf(label, sizeof(label), "CENTRE");
+				else
+					std::snprintf(label, sizeof(label), "%c %d", v < 0 ? 'L' : 'R', std::abs(v));
+				fontSize(10.5f);
+				fillColor(drag ? th.ink : th.inkDim);
+				text(knobX(r), py + kPanR + 18, label, nullptr);
+			}
 
 			// The TR-626's PITCH, of the column's sound clicked last.
 			const Column &col = cs.columns[c];
@@ -724,7 +799,7 @@ private:
 				std::snprintf(pitch, sizeof(pitch), v ? "%s PITCH %+d" : "%s PITCH 0", col.pads[sel].label, v);
 				fontSize(10.5f);
 				fillColor(pp == uint32_t(m_drag) ? th.ink : th.inkDim);
-				text(knobX(r), py + kPitchR + 19, pitch, nullptr);
+				text(knobX(r), py + kPitchR + 18, pitch, nullptr);
 			}
 
 			// The pads: label and note; the lamp above lights when clicked.
@@ -886,14 +961,53 @@ private:
 		drawButton(lookButton(kLookDark), "DARK", m_look == kLookDark);
 
 		// What is still to come, to the right.
-		const float rx = kBody.x + kBody.w * 0.55f;
+		const float rx = kChanX + kFlamKeyX;
 		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
 		fontSize(15);
 		fillColor(th.ink);
-		text(rx, kBody.y + 50, "TO COME", nullptr);
-		fontSize(13);
+		text(rx, kLookY - 22, "TO COME", nullptr);
+		textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+		fontSize(12);
 		fillColor(th.inkDim);
-		text(rx, kBody.y + 110, "The assignment of the sounds to OUT 1-16.", nullptr);
+		text(rx, kLookY + 14, "The assignment of the sounds to OUT 1-16.", nullptr);
+	}
+
+	// The note's name, middle C (60) as C4.
+	static std::string noteName(int note)
+	{
+		static const char *const names[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+		return names[note % 12] + std::to_string(note / 12 - 1);
+	}
+
+	// A value with - and + either side.
+	void drawStepper(const Rect &minus, const Rect &box, const Rect &plus, const char *value)
+	{
+		const Theme &th = theme();
+		for (const Rect &b : { minus, plus })
+		{
+			beginPath();
+			roundedRect(b.x, b.y, b.w, b.h, 3);
+			fillColor(th.button);
+			fill();
+			strokeColor(th.edge);
+			strokeWidth(1);
+			stroke();
+		}
+		beginPath();
+		roundedRect(box.x, box.y, box.w, box.h, 3);
+		fillColor(th.field);
+		fill();
+		strokeColor(th.edge);
+		strokeWidth(1);
+		stroke();
+
+		textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
+		fontSize(17);
+		fillColor(th.ink);
+		text(minus.x + minus.w / 2, minus.y + minus.h / 2, "\xe2\x88\x92", nullptr);
+		text(plus.x + plus.w / 2, plus.y + plus.h / 2, "+", nullptr);
+		fontSize(15);
+		text(box.x + box.w / 2, box.y + box.h / 2 + 1, value, nullptr);
 	}
 
 	void drawChannels()
@@ -906,6 +1020,11 @@ private:
 		fontSize(12);
 		fillColor(th.inkDim);
 		text(kChanX, kBody.y + 70, "Each machine listens on its own channel. Click - / + or use the mouse wheel.", nullptr);
+		textAlign(ALIGN_CENTER | ALIGN_BASELINE);
+		fontSize(12);
+		fillColor(th.ink);
+		text(kChanX + kFlamKeyX + 62, kBody.y + 80, "FLAM KEY", nullptr);
+		text(kChanX + kFlamIntX + 62, kBody.y + 80, "FLAM INTERVAL", nullptr);
 
 		for (uint32_t m = 0; m < kNumMachines; m ++)
 		{
@@ -915,33 +1034,20 @@ private:
 			fillColor(th.tab[m]);
 			text(kChanX, box.y + box.h / 2, kMachineNames[m], nullptr);
 
-			for (const Rect &b : { minus, plus })
-			{
-				beginPath();
-				roundedRect(b.x, b.y, b.w, b.h, 3);
-				fillColor(th.button);
-				fill();
-				strokeColor(th.edge);
-				strokeWidth(1);
-				stroke();
-			}
-			beginPath();
-			roundedRect(box.x, box.y, box.w, box.h, 3);
-			fillColor(th.field);
-			fill();
-			strokeColor(th.edge);
-			strokeWidth(1);
-			stroke();
-
-			textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
-			fontSize(17);
-			fillColor(th.ink);
-			text(minus.x + minus.w / 2, minus.y + minus.h / 2, "\xe2\x88\x92", nullptr);
-			text(plus.x + plus.w / 2, plus.y + plus.h / 2, "+", nullptr);
-			char value[8];
+			char value[16];
 			std::snprintf(value, sizeof(value), "%d", m_channel[m]);
-			fontSize(15);
-			text(box.x + box.w / 2, box.y + box.h / 2 + 1, value, nullptr);
+			drawStepper(minus, box, plus, value);
+
+			// Flam: its key, its interval, and a lamp while it is on.
+			const std::string key = noteName(int(std::lround(m_value[kParamFlamKey + m])));
+			drawStepper(stepMinus(kFlamKeyX, m), stepBox(kFlamKeyX, m), stepPlus(kFlamKeyX, m), key.c_str());
+			const int interval = std::max(1, std::min(4, int(std::lround(m_value[kParamFlamInterval + m]))));
+			std::snprintf(value, sizeof(value), "%.0f ms", double(kFlamMs[interval - 1]));
+			drawStepper(stepMinus(kFlamIntX, m), stepBox(kFlamIntX, m), stepPlus(kFlamIntX, m), value);
+			beginPath();
+			circle(kChanX + kFlamLampX, box.y + box.h / 2, 5);
+			fillColor(m_value[kParamFlamOn + m] > 0.5f ? Color(255, 70, 50) : Color(th.edge, th.panel, 0.3f));
+			fill();
 
 			if (m == kTR727)
 			{
@@ -958,6 +1064,8 @@ private:
 		fillColor(th.inkDim);
 		text(kChanX, kChanY + 4 * kChanRowH + 8, "Vintage timing: each note as late and as uneven as on the unit: the MIDI line, the TR-707's", nullptr);
 		text(kChanX, kChanY + 4 * kChanRowH + 24, "2.8 ms grid, the spread measured on the TR-505 and TR-626 (1.5-1.7 ms).", nullptr);
+		text(kChanX + kFlamKeyX + 130, kChanY + 4 * kChanRowH + 8, "A note on the key switches flam; it plays nothing. A softer", nullptr);
+		text(kChanX + kFlamKeyX + 130, kChanY + 4 * kChanRowH + 24, "hit goes first, the note follows. Transport start: off.", nullptr);
 	}
 
 	void changeChannel(uint32_t m, int delta)

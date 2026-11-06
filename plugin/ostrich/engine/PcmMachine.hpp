@@ -45,6 +45,9 @@ public:
     static double tr626PitchFactor(int sound, int step);
     // A level of our own per sound (the units have none): a gain, 1 = as measured.
     void setLevel(int sound, float gain) { voices_[sound].level = gain; }
+    // A pan of our own per sound: an offset from the unit's own, the whole way from left to
+    // right being 2. The two sides keep their power.
+    void setPan(int sound, double offset);
 
     // Render n internal samples into the stereo mix.
     void render(int n, float* left, float* right);
@@ -66,6 +69,8 @@ private:
         double pos = 0.0, step = 0.25;
         float gain = 0.0f;
         float level = 1.0f;               // setLevel
+        float panL = 1.0f, panR = 1.0f;   // setPan: gains on the way to the two sides
+        double panOffset = 0.0;
         bool playing = false;
     };
 
@@ -75,7 +80,7 @@ private:
     std::array<Voice, kMaxSounds> voices_;
     float hpXL_ = 0.0f, hpYL_ = 0.0f, hpXR_ = 0.0f, hpYR_ = 0.0f;   // output high pass
     static constexpr int kBlock = 512;
-    std::array<float, kBlock> bus_{};                                 // centre bus, one block
+    std::array<float, kBlock> bus_{}, busL_{}, busR_{};               // centre bus, one block
     void renderBlock(int n, float* left, float* right);
 };
 

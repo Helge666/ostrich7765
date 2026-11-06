@@ -9,6 +9,8 @@ namespace ostrich {
 
 namespace {
 
+constexpr double kPi = 3.14159265358979323846;
+
 struct Region {
     uint32_t offset, length;
 };
@@ -252,6 +254,18 @@ void PcmMachine::trigger(int sound, int velocity)
             voices_[s].playing = false;
 }
 
+void PcmMachine::setPan(int sound, double offset)
+{
+    Voice& v = voices_[sound];
+    if (offset == v.panOffset)
+        return;
+    v.panOffset = offset;
+    const double a0 = v.bus ? kPi / 4.0 : std::atan2(double(v.outR), double(v.outL));
+    const double a = std::clamp(a0 + offset * kPi / 4.0, 0.0, kPi / 2.0);
+    v.panL = float(std::cos(a) / std::cos(a0));
+    v.panR = float(std::sin(a) / std::sin(a0));
+}
+
 void PcmMachine::render(int n, float* left, float* right)
 {
     while (n > kBlock) {
@@ -266,7 +280,7 @@ void PcmMachine::render(int n, float* left, float* right)
 void PcmMachine::renderBlock(int n, float* left, float* right)
 {
     for (int i = 0; i < n; ++i)
-        left[i] = right[i] = bus_[size_t(i)] = 0.0f;
+        left[i] = right[i] = bus_[size_t(i)] = busL_[size_t(i)] = busR_[size_t(i)] = 0.0f;
     if (!rom_)
         return;
     for (int s = 0; s < numSounds_; ++s) {
@@ -292,19 +306,23 @@ void PcmMachine::renderBlock(int n, float* left, float* right)
                 v.env *= v.decay;
             if (v.bus) {
                 bus_[size_t(i)] += x * v.busIn;
+                busL_[size_t(i)] += x * v.busIn * v.panL;
+                busR_[size_t(i)] += x * v.busIn * v.panR;
             } else {
-                left[i] += x * v.outL;
-                right[i] += x * v.outR;
+                left[i] += x * v.outL * v.panL;
+                right[i] += x * v.outR * v.panR;
             }
             v.pos += v.step;
         }
     }
-    // The TR-505's centre bus (IC16b): its sum limited, then to both outputs alike.
+    // The TR-505's centre bus (IC16b): its sum limited, then to both outputs alike. A pan of
+    // ours leaves the limit where it is: the two sides get the limited sum's share.
     if (model_ == kTr505) {
         for (int i = 0; i < n; ++i) {
-            const float b = std::clamp(bus_[size_t(i)], -float(kTr505BusClip), float(kTr505BusClip));
-            left[i] += b * float(kTr505BusOut);
-            right[i] += b * float(kTr505BusOut);
+            const float b = std::fabs(bus_[size_t(i)]);
+            const float c = float(kTr505BusOut) * (b > float(kTr505BusClip) ? float(kTr505BusClip) / b : 1.0f);
+            left[i] += busL_[size_t(i)] * c;
+            right[i] += busR_[size_t(i)] * c;
         }
     }
     // The output's coupling capacitors (TR-505: C52 / C50 10 uF into R111 / R110 47k:

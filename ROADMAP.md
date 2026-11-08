@@ -90,5 +90,5 @@ Decisions so far:
 
 ## Phase 6: release 0.1.0
 
-- [ ] Test in Cubase; README with screenshot; Windows and Linux zips.
+- [ ] Test in Cubase; Windows and Linux zips.
 - [ ] TR-727 sound ROMs once available; macOS later.

@@ -8,6 +8,8 @@ project.
 > TR-626's pitch, vintage timing and mono outputs. See
 > [ROADMAP.md](ROADMAP.md).
 
+![The panel, on the TR-505's page](docs/panel.png)
+
 **It is not a sample player.** Ostrich 7765 reads the machines' **original sound ROMs**
 (your own images) instead of playing recordings of them: a recording always carries the
 recording hardware with it, and a set of samples knows nothing of how the machine plays

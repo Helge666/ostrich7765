@@ -79,7 +79,8 @@ Decisions so far:
       (analysis/TIMING.md); the TR-707's HIGHS (TR-707.md).
 - [x] MIDI channel per machine, the mono-output assignment per column (mono there, at the
       level it has in the mix, PAN left out), session state (a CLAP state saved and loaded
-      gives the same output, bit for bit; in a VST3 host still to be tried).
+      gives the same output, bit for bit; the assignment survives reloading a project in
+      Cubase, the owner, 2026-11-08).
 
 ## Phase 5: vintage timing
 

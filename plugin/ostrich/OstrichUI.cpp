@@ -1127,8 +1127,8 @@ private:
 		fillColor(th.inkDim);
 		text(kChanX, kChanY + 4 * kChanRowH + 8, "Vintage timing: each note as late and as uneven as on the unit: the MIDI line, the TR-707's", nullptr);
 		text(kChanX, kChanY + 4 * kChanRowH + 24, "2.8 ms grid, the spread measured on the TR-505 and TR-626 (1.5-1.7 ms).", nullptr);
-		text(kChanX + kFlamKeyX + 130, kChanY + 4 * kChanRowH + 8, "Flam is on while the key is held; the key plays nothing.", nullptr);
-		text(kChanX + kFlamKeyX + 130, kChanY + 4 * kChanRowH + 24, "A softer hit goes first, the note follows.", nullptr);
+		text(kChanX + kFlamKeyX, kChanY + 4 * kChanRowH + 8, "Flam is on while the key is held; the key plays nothing.", nullptr);
+		text(kChanX + kFlamKeyX, kChanY + 4 * kChanRowH + 24, "A softer hit goes first, the note follows.", nullptr);
 	}
 
 	void changeChannel(uint32_t m, int delta)

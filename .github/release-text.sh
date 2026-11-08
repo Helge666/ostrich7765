@@ -52,8 +52,9 @@ EOF
 notes() {
 	local version="$1"
 	cat <<EOF
-Ostrich 7765 ${version}: the Roland TR-505, TR-626, TR-707 and TR-727, played from their
-original sound ROMs.
+Ostrich 7765 ${version}: the Roland TR-505, TR-626 and TR-707, played from their original
+sound ROMs. The TR-727 is prepared, but does not play yet: its sound ROMs have not been
+dumped.
 
 | File | Platform | Contents |
 |---|---|---|

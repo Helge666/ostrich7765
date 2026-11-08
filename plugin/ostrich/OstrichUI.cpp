@@ -946,7 +946,10 @@ private:
 		fillColor(th.ink);
 		text(kRomX, kBody.y + 76, "ROM IMAGES", nullptr);
 		if (romsComplete(m))
+		{
 			drawButton(kRomToggle, "BACK TO THE SOUNDS", false);
+			textAlign(ALIGN_LEFT | ALIGN_BASELINE);     // the button left its own
+		}
 
 		const RomRows &rr = kRomRows[m];
 		if (rr.count == 0)

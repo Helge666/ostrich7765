@@ -250,6 +250,7 @@ public:
 			m_value[p] = kPanDefault[p - kParamPan];
 		for (uint32_t p = kParamOut; p < kParamCount; p ++)
 			m_value[p] = 0.0f;
+		m_value[kParamHighs] = kDefaultHighs;
 		m_value[kParamVolume] = 0.0f;
 		m_romFile.resize(kNumRomImagesUi);
 		m_look = loadLook();
@@ -527,7 +528,8 @@ private:
 	}
 	static float defaultOf(uint32_t p)
 	{
-		return isPan(p) ? kPanDefault[p - kParamPan] : isVolume(p) || isPitch(p) ? 0.0f : 1.0f;
+		return isPan(p) ? kPanDefault[p - kParamPan] : p == kParamHighs ? kDefaultHighs
+		     : isVolume(p) || isPitch(p) ? 0.0f : 1.0f;
 	}
 	static float step(uint32_t p) { return isVolume(p) || isPitch(p) ? 1.0f : 0.02f; }
 

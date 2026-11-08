@@ -163,6 +163,8 @@ constexpr int kFlamSoftBy = 6;
 constexpr uint8_t kDefaultFlamKey = 21;     // A0
 constexpr int kDefaultFlamInterval = 2;
 
+constexpr float kDefaultHighs = 0.5f;       // TR-707 (analysis/TR-707.md, "Highs")
+
 static_assert(kLevelOffset[1] - kLevelOffset[0] == kColumns[0].count
               && kLevelOffset[2] - kLevelOffset[1] == kColumns[1].count
               && kLevelOffset[3] - kLevelOffset[2] == kColumns[2].count

@@ -218,7 +218,7 @@ protected:
 			p.name = "TR-707 highs";
 			p.shortName = "Highs";
 			p.symbol = "tr707_highs";
-			p.ranges.def = 1.0f;
+			p.ranges.def = kDefaultHighs;
 			p.ranges.min = 0.0f;
 			p.ranges.max = 1.0f;
 		}
@@ -881,7 +881,7 @@ private:
 	int m_flamKey[kNumMachines], m_flamInterval[kNumMachines];
 	bool m_flam[kNumMachines] = {};
 	bool m_rolling = false;
-	float m_highs = 1.0f;
+	float m_highs = kDefaultHighs;
 	int m_out[kLevelOffset[kNumMachines]] = {};
 
 	// Notes waiting for their frame (vintage timing, or later in the block).

@@ -4,11 +4,18 @@ The sounds of four sample-based **Roland drum machines** of the 1980s as a VST3/
 and a standalone program: **TR-505, TR-626, TR-707 and TR-727**. A non-commercial fan
 project.
 
-> **Work in progress.** The TR-505, TR-626 and TR-707 play, each with its panel, the
-> TR-626's pitch, vintage timing and mono outputs. See
-> [ROADMAP.md](ROADMAP.md).
+**[Download the latest release](https://github.com/Helge666/ostrich7765/releases/latest)**
+for Windows or Linux, free of charge. [How to install it](#install).
 
-![The panel, on the TR-505's page](docs/panel.png)
+> **First release, still growing.** The TR-505, TR-626 and TR-707 play, each with its panel,
+> the TR-626's pitch, vintage timing and mono outputs. The TR-727 waits for its sound ROMs.
+> See [ROADMAP.md](ROADMAP.md).
+
+![A machine's page, here the TR-707: a column per group of sounds, with level, pan, pads and output](docs/panel-tr707.png)
+
+![The ROM images of a machine: which are there, and a button to add your own](docs/panel-roms.png)
+
+![The settings: MIDI channels, vintage timing, flam and the look](docs/panel-settings.png)
 
 **It is not a sample player.** Ostrich 7765 reads the machines' **original sound ROMs**
 (your own images) instead of playing recordings of them: a recording always carries the
@@ -23,7 +30,20 @@ MIDI.
 
 You need your own ROM images. **This repository contains no Roland data and never will.**
 
-## What it will do
+## Install
+
+1. On the [release page](https://github.com/Helge666/ostrich7765/releases/latest), under
+   *Assets*, download `Ostrich7765-Windows.zip` or `Ostrich7765-Linux.zip` and unpack it.
+2. Copy the folder `Ostrich7765.vst3` to `C:\Program Files\Common Files\VST3\` (Windows) or
+   `~/.vst3/` (Linux), and let your music program scan for new plugins. The zip's
+   `INSTALL.txt` also covers CLAP and the standalone program.
+3. Open Ostrich 7765, go to a machine's tab, click **ROM IMAGES ...**, then
+   **CHOOSE A ROM FILE ...** and pick one of your ROM images or a zip of them. The panel
+   shows what it found. Which files each machine needs: [roms/README.md](roms/README.md).
+4. Send MIDI on channel 10 for the TR-505, 11 for the TR-626, 12 for the TR-707. The pads
+   and notes are on each machine's page.
+
+## What it does
 
 - **Four machines in one plugin**, each on its own tab and its own MIDI channel (TR-505 10,
   TR-626 11, TR-707 12, TR-727 13; set on the SETTINGS page), all playing at the same time.

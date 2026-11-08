@@ -47,7 +47,7 @@ You need your own ROM images. **This repository contains no Roland data and neve
 
 - **Four machines in one plugin**, each on its own tab and its own MIDI channel (TR-505 10,
   TR-626 11, TR-707 12, TR-727 13; set on the SETTINGS page), all playing at the same time.
-  The TR-727 is prepared but needs its sound ROMs, which have not been dumped yet.
+  The TR-727 is prepared but needs its sound ROMs, of which no dump is public.
 - **A panel per machine**: a column per group of sounds with its LEVEL, its PAN (starting
   where the unit has it) and its pads (each with its MIDI note; click one to hear it), and
   the machine's VOLUME. The TR-626 also has its PITCH per sound (-7..+7, as on the unit; it

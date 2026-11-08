@@ -16,7 +16,7 @@ The machine starts playing at once.
 | TR-505 | one sound ROM (raw or decoded dumps are both accepted) | 128 KiB |
 | TR-626 | one sound ROM | 256 KiB |
 | TR-707 | four sound ROMs: IC34 and IC35 (the voices), IC19 (crash), IC22 (ride) | 32 KiB each |
-| TR-727 | the sound ROMs (not yet dumped by anyone we know of) | -- |
+| TR-727 | the sound ROMs (no public dump we know of) | -- |
 
 Known dumps:
 

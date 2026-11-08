@@ -188,6 +188,11 @@ Tr707::Tr707(bool tr727) : tr727_(tr727)
         panL_[i] = panR_[i] = 1.0;
         level_[i] = 1.0;
         inMix_[i] = true;
+        // The same power as its two sides together; in the centre, the level of one side.
+        monoGain_[i] = -std::sqrt((mixL_[i] * mixL_[i] + mixR_[i] * mixR_[i]) / 2.0);
+        dcMono_[i].init(kRate, RcFilter::kHighpass, 1.0 / (2.0 * kPi * 0.05), 1.0);
+        outMono_[i].rcRrBandpass(kRate, 1 * K, 47 * K, 10 * U, 0.01 * U);
+        highsMono_[i].init(kRate, kHighsZero, kHighsPole);
     }
     // DC blocking caps on the summing amps (C211, C212); MAME uses a 0.05 Hz high pass.
     dcL_.init(kRate, RcFilter::kHighpass, 1.0 / (2.0 * kPi * 0.05), 1.0);
@@ -243,6 +248,9 @@ void Tr707::reset()
     dcR_.reset();
     outL_.reset();
     outR_.reset();
+    for (auto& f : dcMono_) f.reset();
+    for (auto& f : outMono_) f.reset();
+    for (auto& f : highsMono_) f.reset();
     updateEgs(0x3ff);
     updateHatEg();
 }
@@ -413,7 +421,7 @@ void Tr707::tick()
     }
 }
 
-void Tr707::render(int n, float* left, float* right, float* const* channels)
+void Tr707::render(int n, float* left, float* right, float* const* channels, float* const* outs)
 {
     constexpr double HAT_HPF_SCALE = 220.0 / (10 * K + 220.0);
     constexpr double HAT_VCA_SCALE = -0.0084 * 4.7 * K;
@@ -476,6 +484,10 @@ void Tr707::render(int n, float* left, float* right, float* const* channels)
             const double x = lpf_[i].step(band * bpfGain_[i] * level_[i]);
             if (channels)
                 channels[i][s] = float(x * kVoltsToAudio);
+            if (outs && outs[i]) {
+                const double m = outMono_[i].step(dcMono_[i].step(x * monoGain_[i]) * master_);
+                outs[i][s] = float(highsMono_[i].step(m, highs_) * kVoltsToAudio);
+            }
             if (inMix_[i]) {
                 l += x * mixL_[i] * panL_[i];
                 r += x * mixR_[i] * panR_[i];

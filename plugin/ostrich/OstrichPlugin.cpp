@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Ostrich 7765 -- the DSP side: the outputs (the stereo mix and 16 mono outputs), MIDI per
-// machine, the panel's size and tab in the host's session, the ROM setup.  Phase 2
-// (ROADMAP.md): the TR-505, TR-626 and TR-707 play into the mix; the TR-727 (no ROMs yet)
-// and the mono outputs follow.
+// machine, the panel's size and tab in the host's session, the ROM setup.  The TR-505,
+// TR-626 and TR-707 play; each column goes to the mix or to a mono output.  The TR-727 (no
+// ROMs yet) follows.
 
 #include "DistrhoPlugin.hpp"
 #include "OstrichShared.hpp"
@@ -222,6 +222,24 @@ protected:
 			p.ranges.min = 0.0f;
 			p.ranges.max = 1.0f;
 		}
+		else if (index >= kParamOut && index < kParamCount)
+		{
+			uint32_t m = 0;
+			while (index >= kParamOut + kLevelOffset[m + 1])
+				m ++;
+			const uint32_t c = index - kParamOut - kLevelOffset[m];
+			std::string title = kColumns[m].columns[c].title, symbol;
+			std::replace(title.begin(), title.end(), '\n', ' ');
+			for (char ch : title)
+				symbol += std::isalnum(static_cast<unsigned char>(ch)) ? char(std::tolower(static_cast<unsigned char>(ch))) : '_';
+			p.hints = kParameterIsInteger;
+			p.name = String(kMachineNames[m]) + " " + String(title.c_str()) + " output";
+			p.shortName = String(title.c_str()) + " out";
+			p.symbol = String(kMachineSymbols[m]) + "_" + String(symbol.c_str()) + "_out";
+			p.ranges.def = 0.0f;
+			p.ranges.min = 0.0f;
+			p.ranges.max = float(kNumMonoOuts);
+		}
 	}
 
 	// The TR-626 pad of pitch parameter i (kColumns626 order).
@@ -259,6 +277,8 @@ protected:
 			return m_flam[index - kParamFlamOn] ? 1.0f : 0.0f;
 		if (index == kParamHighs)
 			return m_highs;
+		if (index >= kParamOut && index < kParamCount)
+			return float(m_out[index - kParamOut]);
 		return 0.0f;
 	}
 
@@ -284,6 +304,8 @@ protected:
 			m_flamInterval[index - kParamFlamInterval] = std::clamp(int(std::lround(value)), 1, 4);
 		else if (index == kParamHighs)
 			m_highs = std::clamp(value, 0.0f, 1.0f);
+		else if (index >= kParamOut && index < kParamCount)
+			m_out[index - kParamOut] = std::clamp(int(std::lround(value)), 0, int(kNumMonoOuts));
 	}
 
 	// ---- outputs -------------------------------------------------------------------------
@@ -393,13 +415,20 @@ protected:
 		// the resampler's window (up to 2 * kHalf more). All engines run at 100 kHz.
 		static_assert(Tr707::kRate == PcmMachine::kRate, "one internal rate");
 		m_maxIn = int(std::ceil(kMaxSegment * Tr707::kRate / rate)) + 2 * Resampler::kHalf + 8;
-		for (Slot &s : m_slots)
+		for (uint32_t m = 0; m < kNumMachines; m ++)
 		{
-			s.resampler.init(Tr707::kRate, rate, 2, m_maxIn);
+			Slot &s = m_slots[m];
+			s.resampler.init(Tr707::kRate, rate, int(2 + kColumns[m].count), m_maxIn);
 			s.inL.assign(size_t(m_maxIn), 0.0f);
 			s.inR.assign(size_t(m_maxIn), 0.0f);
+			s.inNone.assign(size_t(m_maxIn), 0.0f);
 			s.outL.assign(kMaxSegment, 0.0f);
 			s.outR.assign(kMaxSegment, 0.0f);
+			for (uint32_t c = 0; c < kMaxColumns; c ++)
+			{
+				s.inColumn[c].assign(size_t(m_maxIn), 0.0f);
+				s.outColumn[c].assign(kMaxSegment, 0.0f);
+			}
 		}
 	}
 
@@ -494,18 +523,36 @@ protected:
 				const int nIn = s.resampler.inputFor(n);
 				if (nIn > m_maxIn)   // cannot happen (sampleRateChanged); never read past the buffers
 					continue;
+				// The columns on an output of their own: their input, the mix's resampler
+				// so that they stay in time with it; the others are silence for it.
+				const uint32_t count = kColumns[m].count;
+				const int *assigned = m_out + kLevelOffset[m];
+				float *columns[kMaxColumns] = {}, *out[2 + kMaxColumns] = { s.outL.data(), s.outR.data() };
+				const float *in[2 + kMaxColumns] = { s.inL.data(), s.inR.data() };
+				for (uint32_t c = 0; c < count; c ++)
+				{
+					columns[c] = assigned[c] ? s.inColumn[c].data() : nullptr;
+					in[2 + c] = assigned[c] ? s.inColumn[c].data() : s.inNone.data();
+					out[2 + c] = assigned[c] ? s.outColumn[c].data() : nullptr;
+				}
 				if (m == kTR707)
-					m_tr707->render(nIn, s.inL.data(), s.inR.data(), nullptr);
+					m_tr707->render(nIn, s.inL.data(), s.inR.data(), nullptr, columns);
 				else
-					m_pcm[m]->render(nIn, s.inL.data(), s.inR.data());
-				const float *in[2] = { s.inL.data(), s.inR.data() };
-				float *out[2] = { s.outL.data(), s.outR.data() };
+					m_pcm[m]->render(nIn, s.inL.data(), s.inR.data(), columns);
 				s.resampler.process(in, nIn, out, n);
 				const float g = gain * std::pow(10.0f, m_machineVolumeDb[m] / 20.0f);
 				for (int i = 0; i < n; i ++)
 				{
 					outputs[0][pos + i] += s.outL[i] * g;
 					outputs[1][pos + i] += s.outR[i] * g;
+				}
+				for (uint32_t c = 0; c < count; c ++)
+				{
+					if (!assigned[c])
+						continue;
+					float *const to = outputs[kFirstMonoPort + uint32_t(assigned[c]) - 1];
+					for (int i = 0; i < n; i ++)
+						to[pos + i] += s.outColumn[c][i] * g;
 				}
 			}
 			pos = end;
@@ -526,6 +573,8 @@ private:
 	{
 		Resampler resampler;
 		std::vector<float> inL, inR, outL, outR;
+		std::vector<float> inNone;                       // silence for the columns in the mix
+		std::vector<float> inColumn[kMaxColumns], outColumn[kMaxColumns];
 	};
 
 	bool playing(uint32_t m) const
@@ -553,6 +602,7 @@ private:
 				const uint32_t i = kLevelOffset[kTR707] + c;
 				m_tr707->setLevel(int(c), m_level[i]);
 				m_tr707->setPan(int(c), double(m_pan[i]) - double(kPanDefault[i]));
+				m_tr707->setInMix(int(c), m_out[i] == 0);
 			}
 		}
 		for (uint32_t m : { uint32_t(kTR505), uint32_t(kTR626) })
@@ -570,6 +620,7 @@ private:
 					const uint32_t i = kLevelOffset[m] + c;
 					m_pcm[m]->setLevel(sound, m_level[i]);
 					m_pcm[m]->setPan(sound, double(m_pan[i]) - double(kPanDefault[i]));
+					m_pcm[m]->setColumn(sound, m_out[i] ? int(c) : -1);
 				}
 			}
 		}
@@ -831,6 +882,7 @@ private:
 	bool m_flam[kNumMachines] = {};
 	bool m_rolling = false;
 	float m_highs = 1.0f;
+	int m_out[kLevelOffset[kNumMachines]] = {};
 
 	// Notes waiting for their frame (vintage timing, or later in the block).
 	struct Pending { uint64_t at; uint8_t machine, note, velocity; };

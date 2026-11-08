@@ -56,8 +56,10 @@ public:
 
     // Render n internal samples. channels: kNumChannels buffers, or null; each carries its
     // channel after the low pass (as the machine's individual outputs). A channel taken out
-    // of the mix (setInMix) still appears there.
-    void render(int n, float* left, float* right, float* const* channels);
+    // of the mix (setInMix) still appears there. outs: kNumChannels pointers, each a buffer or
+    // null; a channel with a buffer gets there, in mono, what it brings to the mix: the same
+    // filters after it, the level of one side for a channel in the centre, PAN left out.
+    void render(int n, float* left, float* right, float* const* channels, float* const* outs = nullptr);
 
     void setLevel(int channel, double gain) { level_[channel] = gain; }
     // A pan of our own per channel: an offset from the machine's own, the whole way from left
@@ -123,6 +125,11 @@ private:
     RcFilter dcL_, dcR_;
     Biquad outL_, outR_;
     Shelf highsL_, highsR_;
+    // A channel on an output of its own (render's outs).
+    std::array<double, kNumChannels> monoGain_{};
+    std::array<RcFilter, kNumChannels> dcMono_;
+    std::array<Biquad, kNumChannels> outMono_;
+    std::array<Shelf, kNumChannels> highsMono_;
     double highs_ = 1.0;
     double master_ = 0.5;
     double muxScale_ = 0.0;

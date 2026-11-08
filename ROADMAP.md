@@ -9,8 +9,9 @@ Decisions so far:
 
 - One plugin, four machines playing at the same time, each on a MIDI channel of its own;
   the panel's tabs (TR-505, TR-626, TR-707, TR-727, Settings) only choose the view.
-- Outputs: the stereo mix and 16 mono outputs, a pool shared by all machines. Each sound
-  can be assigned to one of them and then leaves the mix.
+- Outputs: the stereo mix and 16 mono outputs, a pool shared by all machines. Each column
+  (decided 2026-11-08: as LEVEL and PAN, not per sound) can be assigned to one of them and
+  then leaves the mix.
 - Note mapping (decided 2026-11-04): every machine keeps its original note map on its own
   MIDI channel (TR-505 35-68, TR-626 35-75, TR-707 35-56, TR-727 60-74; analysis/). An
   octave offset per machine cannot put them all on one channel, since the maps span up to
@@ -29,9 +30,8 @@ Decisions so far:
       outputs (off until the host switches them on); the panel with its tabs; the version.
 - [x] CI: Linux and Windows on GitHub, smoke test, zips; `v*` publishes a release.
 - [x] GitHub repository with topics; first push together with the owner.
-- [ ] DPF fork: the CLAP descriptor's version string is empty (DPF's "TODO version
-      string"), and CLAP buses of a group of our own have no port type (mono outputs).
-      Commits in Helge666/DPF, then a new `logan-N` tag.
+- [x] DPF fork (`logan-2`): the CLAP descriptor's version string, and the port type of CLAP
+      buses of a group of our own (mono outputs).
 
 ## Phase 1: ROM analysis
 
@@ -46,7 +46,7 @@ Decisions so far:
 
 ## Phase 2: sound generation
 
-- [ ] TR-707 first (best documented; engine checked against the ROMs, by ear, and playing in the plugin's mix on its MIDI channel, heard right in the owner's DAW on Windows, 2026-11-04; mono outputs open): playback at the original rates, 8-bit multiplying
+- [ ] TR-707 first (best documented; engine checked against the ROMs, by ear, and playing in the plugin's mix on its MIDI channel, heard right in the owner's DAW on Windows, 2026-11-04): playback at the original rates, 8-bit multiplying
       DAC with accent, 6-bit DACs for crash and ride, the closed hi-hat's VCA, sounds that
       share a voice cutting each other, sample-and-hold steps, resampling to the host rate.
       Against a recording of a real unit (2026-11-06, TR-707.md): hat VCA, diode band
@@ -77,7 +77,9 @@ Decisions so far:
       over MIDI its velocity sets the accent (TR-727 firmware; TR-707.md).
 - [x] PAN per column, defaults as on the units; flam while a key note is held, per machine
       (analysis/TIMING.md); the TR-707's HIGHS (TR-707.md).
-- [ ] MIDI channel per machine, the mono-output assignment, session state.
+- [x] MIDI channel per machine, the mono-output assignment per column (mono there, at the
+      level it has in the mix, PAN left out), session state (a CLAP state saved and loaded
+      gives the same output, bit for bit; in a VST3 host still to be tried).
 
 ## Phase 5: vintage timing
 

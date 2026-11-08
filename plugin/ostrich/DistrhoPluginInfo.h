@@ -30,10 +30,10 @@
 
 #define DISTRHO_UI_USE_NANOVG           1
 // Design units = these pixels at 100 %.  Both sides divisible by 4, so that every Windows
-// scaling in quarter steps gives whole pixels (125 %: 1625 x 700) and a host that converts
+// scaling in quarter steps gives whole pixels (125 %: 1625 x 730) and a host that converts
 // to its own units and back -- Cubase -- has nothing to round.
 #define DISTRHO_UI_DEFAULT_WIDTH        1300
-#define DISTRHO_UI_DEFAULT_HEIGHT       560
+#define DISTRHO_UI_DEFAULT_HEIGHT       584
 #define DISTRHO_UI_USER_RESIZABLE       1
 #define DISTRHO_UI_FILE_BROWSER         1     // the ROM setup (phase 4)
 

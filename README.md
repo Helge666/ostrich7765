@@ -5,7 +5,7 @@ and a standalone program: **TR-505, TR-626, TR-707 and TR-727**. A non-commercia
 project.
 
 > **Work in progress.** The TR-505, TR-626 and TR-707 play, each with its panel, the
-> TR-626's pitch and vintage timing; the mono outputs are still to come. See
+> TR-626's pitch, vintage timing and mono outputs. See
 > [ROADMAP.md](ROADMAP.md).
 
 **It is not a sample player.** Ostrich 7765 reads the machines' **original sound ROMs**
@@ -32,8 +32,9 @@ You need your own ROM images. **This repository contains no Roland data and neve
   sets the pad clicked last), the TR-707 HIGHS, from the circuit as documented to a
   recording of a real unit ([analysis/TR-707.md](analysis/TR-707.md)). Two looks, VINTAGE
   (the units' beige) and DARK, chosen on the SETTINGS page.
-- **16 mono outputs** besides the stereo mix: a sound assigned to one of them leaves the
-  mix.
+- **16 mono outputs** besides the stereo mix: at the foot of each column, MIX or OUT 1-16.
+  A column on an OUT leaves the mix; several columns can share one. Switch the OUT on in
+  your host, or the column stays silent.
 - **Vintage timing (per machine, on by default):** each note as late and as uneven as on
   the unit: the MIDI line, the TR-707's 2.8 ms grid, the spread measured on the TR-505 and
   TR-626 ([analysis/TIMING.md](analysis/TIMING.md)).

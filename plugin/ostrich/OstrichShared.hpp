@@ -118,7 +118,8 @@ enum Param : uint32_t
 	kParamFlamInterval = kParamFlamKey + kMachineCount,   ///< + machine: 1..4 (kFlamMs)
 	kParamFlamOn = kParamFlamInterval + kMachineCount,    ///< + machine: output, flam is on
 	kParamHighs = kParamFlamOn + kMachineCount,           ///< TR-707: 0..1 (Tr707::setHighs)
-	kParamCount
+	kParamOut,                  ///< see kLevelOffset: 0 the mix, 1..16 OUT 1..16
+	kParamCount = kParamOut + 46
 };
 
 // The TR-626's pitch parameter of pad k of column c (its pitch is set per sound).
@@ -138,6 +139,11 @@ constexpr uint32_t levelParam(uint32_t machine, uint32_t column)
 constexpr uint32_t panParam(uint32_t machine, uint32_t column)
 {
 	return kParamPan + kLevelOffset[machine] + column;
+}
+
+constexpr uint32_t outParam(uint32_t machine, uint32_t column)
+{
+	return kParamOut + kLevelOffset[machine] + column;
 }
 
 // Each column's pan as the unit has it, -1 .. +1 (the angle of its two output levels). TR-505,
@@ -188,8 +194,8 @@ constexpr char kRomSetFieldSep = '\t';
 // ---- outputs -----------------------------------------------------------------------------
 
 // Ports 0/1 are the stereo mix; ports 2..17 are OUT 1..16, mono, a bus each.  The mono buses
-// are off until the user switches them on in the host (our DPF fork); a sound assigned to one
-// of them leaves the mix.
+// are off until the user switches them on in the host (our DPF fork); a column assigned to
+// one of them leaves the mix (kParamOut). Several columns may share one.
 constexpr uint32_t kNumMonoOuts = 16;
 constexpr uint32_t kFirstMonoPort = 2;
 constexpr uint32_t kPortGroupMonoOut = 100;   ///< + 0..15: the group (= bus) of OUT 1..16

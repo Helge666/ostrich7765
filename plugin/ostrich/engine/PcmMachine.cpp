@@ -225,6 +225,7 @@ PcmMachine::PcmMachine(Model model) : model_(model), numSounds_(model == kTr505 
             voices_[s].pulse = float(kTr626Pulse * 128.0);
         }
         voices_[s].step = kSampleRate / kRate;
+        voices_[s].mono = std::sqrt((voices_[s].outL * voices_[s].outL + voices_[s].outR * voices_[s].outR) / 2.0f);
     }
 }
 
@@ -235,6 +236,8 @@ void PcmMachine::reset()
         v.pos = 0.0;
     }
     hpXL_ = hpYL_ = hpXR_ = hpYR_ = 0.0f;
+    hpXColumn_.fill(0.0f);
+    hpYColumn_.fill(0.0f);
 }
 
 void PcmMachine::trigger(int sound, int velocity)
@@ -266,21 +269,30 @@ void PcmMachine::setPan(int sound, double offset)
     v.panR = float(std::sin(a) / std::sin(a0));
 }
 
-void PcmMachine::render(int n, float* left, float* right)
+void PcmMachine::render(int n, float* left, float* right, float* const* columns)
 {
+    std::array<float*, kMaxColumns> c{};
+    if (columns)
+        std::copy(columns, columns + kMaxColumns, c.begin());
     while (n > kBlock) {
-        renderBlock(kBlock, left, right);
+        renderBlock(kBlock, left, right, c.data());
         left += kBlock;
         right += kBlock;
+        for (float*& p : c)
+            if (p)
+                p += kBlock;
         n -= kBlock;
     }
-    renderBlock(n, left, right);
+    renderBlock(n, left, right, c.data());
 }
 
-void PcmMachine::renderBlock(int n, float* left, float* right)
+void PcmMachine::renderBlock(int n, float* left, float* right, float* const* columns)
 {
     for (int i = 0; i < n; ++i)
         left[i] = right[i] = bus_[size_t(i)] = busL_[size_t(i)] = busR_[size_t(i)] = 0.0f;
+    for (int c = 0; c < kMaxColumns; ++c)
+        if (columns[c])
+            std::fill(columns[c], columns[c] + n, 0.0f);
     if (!rom_)
         return;
     for (int s = 0; s < numSounds_; ++s) {
@@ -304,7 +316,14 @@ void PcmMachine::renderBlock(int n, float* left, float* right)
                 --v.holdLeft;
             else
                 v.env *= v.decay;
-            if (v.bus) {
+            if (v.column >= 0 && columns[v.column]) {
+                if (v.bus) {
+                    const float y = x * v.busIn, b = std::fabs(y);
+                    columns[v.column][i] += y * float(kTr505BusOut) * (b > float(kTr505BusClip) ? float(kTr505BusClip) / b : 1.0f);
+                } else {
+                    columns[v.column][i] += x * v.mono;
+                }
+            } else if (v.bus) {
                 bus_[size_t(i)] += x * v.busIn;
                 busL_[size_t(i)] += x * v.busIn * v.panL;
                 busR_[size_t(i)] += x * v.busIn * v.panR;
@@ -335,6 +354,16 @@ void PcmMachine::renderBlock(int n, float* left, float* right)
         hpXR_ = r;
         left[i] = hpYL_;
         right[i] = hpYR_;
+    }
+    for (int c = 0; c < kMaxColumns; ++c) {
+        if (!columns[c])
+            continue;
+        for (int i = 0; i < n; ++i) {
+            const float x = columns[c][i];
+            hpYColumn_[size_t(c)] = float(kHpA) * (hpYColumn_[size_t(c)] + x - hpXColumn_[size_t(c)]);
+            hpXColumn_[size_t(c)] = x;
+            columns[c][i] = hpYColumn_[size_t(c)];
+        }
     }
 }
 

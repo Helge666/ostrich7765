@@ -131,11 +131,13 @@ void saveLook(int look)
 
 // ---- a machine's page: the columns ---------------------------------------------------------
 
-constexpr float kColGap = 6, kColTop = kBodyY + 36, kColBottom = kBodyY + 410;
+constexpr float kColGap = 6, kColTop = kBodyY + 36, kColBottom = kBodyY + 434;
 constexpr float kKnobR = 22, kKnobDy = 72;
 constexpr float kPanR = 14, kPanDy = 148;         // PAN (TR-707: HIGHS in the VOLUME column)
 constexpr float kPitchR = 14, kPitchDy = 210;     // the TR-626's PITCH
 constexpr float kPadW = 34, kPadH = 40, kPadGap = 5;
+constexpr float kOutH = 20, kOutFoot = 6, kOutRoom = 24;  // MIX / OUT n at a column's foot
+constexpr float kOutStep = 20;                            // the width of its - and +
 
 // Column c of a machine's n columns; c == n is its VOLUME.
 inline Rect columnRect(uint32_t n, uint32_t c)
@@ -159,8 +161,13 @@ inline Rect padRect(const Rect &col, uint32_t count, uint32_t k)
 	const uint32_t pos = row == 0 ? k : (k - first) % perRow;
 	const float rowW = float(inRow) * kPadW + float(inRow - 1) * kPadGap;
 	const float x = col.x + (col.w - rowW) / 2 + float(pos) * (kPadW + kPadGap);
-	const float y = col.y + col.h - 14 - float(rows - row) * (kPadH + 16) + 16;
+	const float y = col.y + col.h - kOutRoom - 14 - float(rows - row) * (kPadH + 16) + 16;
 	return { x, y, kPadW, kPadH };
+}
+
+inline Rect outRect(const Rect &col)
+{
+	return { col.x + 6, col.y + col.h - kOutFoot - kOutH, col.w - 12, kOutH };
 }
 
 // The colour zone of column c of n (as the reference panel: red, orange, yellow, cream).
@@ -241,6 +248,8 @@ public:
 			m_value[p] = 0.0f;
 		for (uint32_t p = kParamPan; p < kParamFlamKey; p ++)
 			m_value[p] = kPanDefault[p - kParamPan];
+		for (uint32_t p = kParamOut; p < kParamCount; p ++)
+			m_value[p] = 0.0f;
 		m_value[kParamVolume] = 0.0f;
 		m_romFile.resize(kNumRomImagesUi);
 		m_look = loadLook();
@@ -276,6 +285,8 @@ protected:
 			}
 			return false;
 		}
+		if (const int o = outAt(x, y); o >= 0)
+			return setValue(uint32_t(o), m_value[o] + float(dir), true), true;
 		const int p = knobAt(x, y);
 		if (p < 0)
 			return false;
@@ -396,6 +407,14 @@ protected:
 			repaint();
 			return true;
 		}
+		// A column's output: its - and +.
+		if (const int o = outAt(x, y); o >= 0)
+		{
+			const Rect b = outRect(columnRect(kColumns[m].count, uint32_t(o) - outParam(m, 0)));
+			if (x < b.x + kOutStep || x >= b.x + b.w - kOutStep)
+				setValue(uint32_t(o), m_value[o] + (x < b.x + kOutStep ? -1.0f : 1.0f), true);
+			return true;
+		}
 		// A pad: plays its sound on the machine's channel.
 		const Columns &cs = kColumns[m];
 		for (uint32_t c = 0; c < cs.count; c ++)
@@ -496,13 +515,15 @@ private:
 	static bool isFlamKey(uint32_t p) { return p >= kParamFlamKey && p < kParamFlamInterval; }
 	static bool isFlamInterval(uint32_t p) { return p >= kParamFlamInterval && p < kParamFlamOn; }
 	static bool isSwitch(uint32_t p) { return p >= kParamTiming && p < kParamTiming + kMachineCount; }
+	static bool isOut(uint32_t p) { return p >= kParamOut && p < kParamCount; }
 	static float rangeMin(uint32_t p)
 	{
 		return isVolume(p) ? -40.0f : isPitch(p) ? -7.0f : isPan(p) ? -1.0f : isFlamInterval(p) ? 1.0f : 0.0f;
 	}
 	static float rangeMax(uint32_t p)
 	{
-		return isVolume(p) ? 6.0f : isPitch(p) ? 7.0f : isFlamKey(p) ? 127.0f : isFlamInterval(p) ? 4.0f : 1.0f;
+		return isVolume(p) ? 6.0f : isPitch(p) ? 7.0f : isFlamKey(p) ? 127.0f : isFlamInterval(p) ? 4.0f
+		     : isOut(p) ? float(kNumMonoOuts) : 1.0f;
 	}
 	static float defaultOf(uint32_t p)
 	{
@@ -521,7 +542,7 @@ private:
 		v = std::max(rangeMin(p), std::min(rangeMax(p), v));
 		if (isVolume(p))
 			v = std::round(v * 2.0f) / 2.0f;     // half dB steps
-		else if (isPitch(p) || isSwitch(p) || isFlamKey(p) || isFlamInterval(p))
+		else if (isPitch(p) || isSwitch(p) || isFlamKey(p) || isFlamInterval(p) || isOut(p))
 			v = std::round(v);
 		if (v == m_value[p])
 			return;
@@ -558,6 +579,18 @@ private:
 			if (m == kTR626 && c < n && dx * dx + py * py <= (kPitchR + 8) * (kPitchR + 8))
 				return int(pitchParam(c, m_selected[m][c]));
 		}
+		return -1;
+	}
+
+	// The output parameter of the column whose MIX / OUT box is under (x, y), or -1.
+	int outAt(float x, float y) const
+	{
+		if (m_tab >= kNumMachines || showingRoms(m_tab))
+			return -1;
+		const uint32_t m = m_tab, n = kColumns[m].count;
+		for (uint32_t c = 0; c < n; c ++)
+			if (outRect(columnRect(n, c)).contains(x, y))
+				return int(outParam(m, c));
 		return -1;
 	}
 
@@ -829,7 +862,35 @@ private:
 				fillColor(Color(th.padInk[z], th.zone[z], 0.3f));
 				text(pr.x + pr.w / 2, pr.y + 33, note, nullptr);
 			}
+
+			drawOut(outRect(r), int(std::lround(m_value[outParam(m, c)])));
 		}
+	}
+
+	// A column's output: MIX or OUT n, with its - and +.
+	void drawOut(const Rect &b, int out)
+	{
+		const Theme &th = theme();
+		beginPath();
+		roundedRect(b.x, b.y, b.w, b.h, 3);
+		fillColor(out ? Color(th.field, th.accent, 0.25f) : th.field);
+		fill();
+		strokeColor(out ? th.accent : th.edge);
+		strokeWidth(1);
+		stroke();
+		textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
+		fontSize(14);
+		fillColor(th.inkDim);
+		text(b.x + kOutStep / 2, b.y + b.h / 2, "\xe2\x88\x92", nullptr);
+		text(b.x + b.w - kOutStep / 2, b.y + b.h / 2, "+", nullptr);
+		char label[16];
+		if (out)
+			std::snprintf(label, sizeof(label), "OUT %d", out);
+		else
+			std::snprintf(label, sizeof(label), "MIX");
+		fontSize(10.5f);
+		fillColor(out ? th.ink : th.inkDim);
+		text(b.x + b.w / 2, b.y + b.h / 2 + 1, label, nullptr);
 	}
 
 	// A knob of 270 degrees: the track, the value's arc in the column's colour, the cap with
@@ -960,16 +1021,18 @@ private:
 		drawButton(lookButton(kLookVintage), "VINTAGE", m_look == kLookVintage);
 		drawButton(lookButton(kLookDark), "DARK", m_look == kLookDark);
 
-		// What is still to come, to the right.
+		// How the outputs work, to the right.
 		const float rx = kChanX + kFlamKeyX;
 		textAlign(ALIGN_LEFT | ALIGN_BASELINE);
 		fontSize(15);
 		fillColor(th.ink);
-		text(rx, kLookY - 22, "TO COME", nullptr);
+		text(rx, kLookY - 22, "OUTPUTS", nullptr);
 		textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
 		fontSize(12);
 		fillColor(th.inkDim);
-		text(rx, kLookY + 14, "The assignment of the sounds to OUT 1-16.", nullptr);
+		text(rx, kLookY + 6, "At the foot of each column: MIX or OUT 1-16. A column on an OUT", nullptr);
+		text(rx, kLookY + 22, "leaves the mix and plays in mono there; PAN does nothing then.", nullptr);
+		text(rx, kLookY + 38, "Switch the OUT on in your host, or the column stays silent.", nullptr);
 	}
 
 	// The note's name, middle C (60) as C4.

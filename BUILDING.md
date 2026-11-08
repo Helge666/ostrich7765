@@ -60,6 +60,9 @@ OSTRICH_ROMS=~/my-roms plugin/tools/ostrich_clap_render plugin/bin/Ostrich7765.c
     36@0.5,38@1.0,42@1.5 12
 ```
 
+Its comment at the top lists what it reads from the environment for measuring: parameters
+to set, a state to load or save, all output channels as raw data.
+
 `plugin/tools/ostrich_engine_render.cpp` plays a machine's engine without the plugin (every
 sound at three velocities); `tools/check_tr707_render.py` checks such a render against the
 ROMs. Both are described at their top.
@@ -75,6 +78,7 @@ BUILDING.md; Ostrich 7765 relies on these:
 | Change | What it does |
 |---|---|
 | VST3: extra outputs off | the 16 mono outputs are main buses, off until the host switches them on |
+| CLAP: port type, version | a bus of a group of the plugin's own is mono or stereo by its width; the descriptor has the version |
 | VST3: 16 MIDI channels | the MIDI input bus has 16 channels (Cubase folded all onto channel 1) |
 | JACK, CLAP, VST3: DSP → UI state | `updateStateValue()` reaches the UI |
 | VST3: size rounding, UI idle watchdog | the panel opens at the right size in Cubase and keeps redrawing |

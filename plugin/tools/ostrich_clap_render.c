@@ -9,6 +9,12 @@
     for 0.25 s, on `channel` (1-16, default 10).  Renders `seconds` (default 3) at `rate`
     (default 48000).  Every output bus gets buffers of its own (all switched on).  Prints
     the plugin's name, its output buses, the state's size and the peak of each output.
+
+    From the environment, for measuring:
+        OSTRICH_PARAMS       "index=value,...": parameters set before the first note
+        OSTRICH_STATE_LOAD   a file with a state saved before: loaded before the first block
+        OSTRICH_STATE_SAVE   the state goes to this file after the last block
+        OSTRICH_RAW          every output channel to this file, interleaved, 32-bit floats
 */
 
 #define _GNU_SOURCE
@@ -35,7 +41,9 @@ static const clap_host_t host = {
 	host_get_extension, host_noop, host_noop, host_noop
 };
 
-typedef struct { clap_event_note_t ev[64]; uint32_t n; } events_t;
+#define MAX_EVENTS 128
+typedef union { clap_event_header_t header; clap_event_note_t note; clap_event_param_value_t param; } event_t;
+typedef struct { event_t ev[MAX_EVENTS]; uint32_t n; } events_t;
 static uint32_t in_size(const clap_input_events_t *l) { return ((const events_t *)l->ctx)->n; }
 static const clap_event_header_t *in_get(const clap_input_events_t *l, uint32_t i)
 { return &((const events_t *)l->ctx)->ev[i].header; }
@@ -47,6 +55,10 @@ static int64_t ostream_write(const clap_ostream_t *s, const void *d, uint64_t n)
 	buf_t *b = (buf_t *)s->ctx;
 	if (b->n + n > b->cap) { b->cap = (b->n + n) * 2; b->p = realloc(b->p, b->cap); }
 	memcpy(b->p + b->n, d, n); b->n += n; return (int64_t)n;
+}
+static int64_t istream_read(const clap_istream_t *s, void *d, uint64_t n)
+{
+	return (int64_t)fread(d, 1, n, (FILE *)s->ctx);
 }
 
 int main(int argc, char **argv)
@@ -92,13 +104,35 @@ int main(int argc, char **argv)
 		ap->get(p, b, false, &info);
 		width[b] = info.channel_count;
 		nchan += info.channel_count;
-		printf("output bus %u: %s, %u channel%s\n", b, info.name, info.channel_count, info.channel_count == 1 ? "" : "s");
+		printf("output bus %u: %s, %u channel%s, type %s\n", b, info.name, info.channel_count,
+		       info.channel_count == 1 ? "" : "s", info.port_type ? info.port_type : "none");
 	}
 	printf("outputs: %u buses, %u channels\n", nbus, nchan);
 	if (nbus == 0 || nchan > MAX_CHANNELS) { fprintf(stderr, "unexpected outputs\n"); return 1; }
 
+	const clap_plugin_state_t *st = p->get_extension(p, CLAP_EXT_STATE);
+	const char *state_load = getenv("OSTRICH_STATE_LOAD");
+	if (st && state_load)
+	{
+		FILE *f = fopen(state_load, "rb");
+		if (!f) { fprintf(stderr, "cannot read %s\n", state_load); return 1; }
+		clap_istream_t is = { f, istream_read };
+		printf("state loaded: %s\n", st->load(p, &is) ? "yes" : "FAILED");
+		fclose(f);
+	}
+
 	if (!p->activate(p, rate, 1, FRAMES)) { fprintf(stderr, "activate failed\n"); return 1; }
 	p->start_processing(p);
+
+	struct { uint32_t id; double value; } params[64]; int nparams = 0;
+	if (getenv("OSTRICH_PARAMS"))
+		for (char *t = strtok(strdup(getenv("OSTRICH_PARAMS")), ","); t && nparams < 64; t = strtok(NULL, ","))
+		{
+			char *eq = strchr(t, '=');
+			if (!eq) continue;
+			params[nparams].id = (uint32_t)atoi(t);
+			params[nparams ++].value = atof(eq + 1);
+		}
 
 	const uint32_t total = (uint32_t)(rate * seconds);
 	float *out[MAX_CHANNELS];
@@ -107,13 +141,24 @@ int main(int argc, char **argv)
 	for (uint32_t pos = 0; pos < total; pos += FRAMES)
 	{
 		events_t evs; memset(&evs, 0, sizeof(evs));
+		for (int j = 0; pos == 0 && j < nparams; j ++)
+		{
+			clap_event_param_value_t *e = &evs.ev[evs.n ++].param;
+			e->header.size = sizeof(*e);
+			e->header.time = 0;
+			e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+			e->header.type = CLAP_EVENT_PARAM_VALUE;
+			e->param_id = params[j].id;
+			e->note_id = -1; e->port_index = -1; e->channel = -1; e->key = -1;
+			e->value = params[j].value;
+		}
 		for (int j = 0; j < nnotes; j ++)
 			for (int k = 0; k < 2; k ++)
 			{
 				const uint32_t at = (uint32_t)(rate * (notes[j].at + (k ? 0.25 : 0.0)));
-				if (at >= pos && at < pos + FRAMES && evs.n < 64)
+				if (at >= pos && at < pos + FRAMES && evs.n < MAX_EVENTS)
 				{
-					clap_event_note_t *e = &evs.ev[evs.n ++];
+					clap_event_note_t *e = &evs.ev[evs.n ++].note;
 					e->header.size = sizeof(*e);
 					e->header.time = at - pos;
 					e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
@@ -127,7 +172,7 @@ int main(int argc, char **argv)
 		for (uint32_t a = 1; a < evs.n; a ++)
 			for (uint32_t b = a; b > 0 && evs.ev[b].header.time < evs.ev[b - 1].header.time; b --)
 			{
-				clap_event_note_t t = evs.ev[b]; evs.ev[b] = evs.ev[b - 1]; evs.ev[b - 1] = t;
+				event_t t = evs.ev[b]; evs.ev[b] = evs.ev[b - 1]; evs.ev[b - 1] = t;
 			}
 		clap_input_events_t in = { &evs, in_size, in_get };
 		clap_output_events_t oev = { NULL, out_push };
@@ -144,13 +189,17 @@ int main(int argc, char **argv)
 		p->process(p, &proc);
 	}
 
-	const clap_plugin_state_t *st = p->get_extension(p, CLAP_EXT_STATE);
 	if (st)
 	{
 		buf_t b = { 0 };
 		clap_ostream_t os = { &b, ostream_write };
 		const bool ok = st->save(p, &os);
 		printf("state: %s, %zu bytes\n", ok ? "saved" : "FAILED", b.n);
+		if (getenv("OSTRICH_STATE_SAVE"))
+		{
+			FILE *f = fopen(getenv("OSTRICH_STATE_SAVE"), "wb");
+			if (f) { fwrite(b.p, 1, b.n, f); fclose(f); }
+		}
 		free(b.p);
 	}
 	p->stop_processing(p);
@@ -176,6 +225,17 @@ int main(int argc, char **argv)
 			int16_t q16 = (int16_t)q; fwrite(&q16, 2, 1, w);
 		}
 	fclose(w);
+	if (getenv("OSTRICH_RAW"))
+	{
+		FILE *r = fopen(getenv("OSTRICH_RAW"), "wb");
+		if (r)
+		{
+			for (uint32_t i = 0; i < total; i ++)
+				for (uint32_t c = 0; c < nchan; c ++)
+					fwrite(&out[c][i], sizeof(float), 1, r);
+			fclose(r);
+		}
+	}
 	printf("wrote %s\npeaks:", argv[2]);
 	for (uint32_t c = 0; c < nchan; c ++)
 	{

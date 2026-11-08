@@ -23,6 +23,7 @@ public:
     static constexpr double kRate = 100000.0;
     static constexpr double kSampleRate = 25000.0;   // measured, both units (within 0.5 %)
     static constexpr int kMaxSounds = 30;
+    static constexpr int kMaxColumns = 13;
 
     explicit PcmMachine(Model model);
 
@@ -49,8 +50,14 @@ public:
     // right being 2. The two sides keep their power.
     void setPan(int sound, double offset);
 
-    // Render n internal samples into the stereo mix.
-    void render(int n, float* left, float* right);
+    // Takes a sound out of the mix, into buffer `column` of render's columns (-1: the mix).
+    void setColumn(int sound, int column) { voices_[sound].column = column; }
+
+    // Render n internal samples into the stereo mix. columns: kMaxColumns pointers, each a
+    // buffer or null; a sound of a column with a buffer goes there in mono, with what it
+    // would get on the way to the mix: the level of one side for a sound in the centre, the
+    // output's high pass, PAN left out. On the TR-505's centre bus it is limited by itself.
+    void render(int n, float* left, float* right, float* const* columns = nullptr);
 
     // The unit's own note map (measured, and the same in its manual): a sound, or -1.
     static int noteToSound(Model model, int note);
@@ -71,6 +78,8 @@ private:
         float level = 1.0f;               // setLevel
         float panL = 1.0f, panR = 1.0f;   // setPan: gains on the way to the two sides
         double panOffset = 0.0;
+        int column = -1;                  // setColumn
+        float mono = 1.0f;                // its gain there: the power of its two sides
         bool playing = false;
     };
 
@@ -81,7 +90,8 @@ private:
     float hpXL_ = 0.0f, hpYL_ = 0.0f, hpXR_ = 0.0f, hpYR_ = 0.0f;   // output high pass
     static constexpr int kBlock = 512;
     std::array<float, kBlock> bus_{}, busL_{}, busR_{};               // centre bus, one block
-    void renderBlock(int n, float* left, float* right);
+    std::array<float, kMaxColumns> hpXColumn_{}, hpYColumn_{};        // the columns' high passes
+    void renderBlock(int n, float* left, float* right, float* const* columns);
 };
 
 } // namespace ostrich

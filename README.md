@@ -1,5 +1,10 @@
 # Ostrich 7765
 
+> **Ostrich 7765 has moved** to the monorepo **[Ostrich != Emu](https://github.com/Helge666/ostrich-not-emu)**, where it lives
+> with its siblings: [`instruments/ostrich-7765`](https://github.com/Helge666/ostrich-not-emu/tree/main/instruments/ostrich-7765).
+> New versions and downloads are published there. This repository is archived and
+> stays as it is; its releases remain available.
+
 The sounds of four sample-based **Roland drum machines** of the 1980s as a VST3/CLAP plugin
 and a standalone program: **TR-505, TR-626, TR-707 and TR-727**. A non-commercial fan
 project.
